@@ -1,9 +1,9 @@
 # Portable GIF Decoder for Embedded Systems Based on giflib
 
 `giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded
-systems. It retains giflib's mature parser and LZW decoder while placing a
-small portability boundary between the decoder and platform-specific storage,
-display, timing, and operating-system services.
+systems. It retains giflib's mature parser and LZW decoder while placing fixed
+public, private, and porting boundaries between the decoder and
+platform-specific storage, display, timing, and operating-system services.
 
 > **Upstream attribution:** This project incorporates and modifies a
 > substantial amount of source code from giflib. The original authors retain
@@ -17,31 +17,28 @@ the migration; it is not intended to be the final application-facing API.
 
 ## Design goals
 
-- Stream input through a caller-supplied byte source.
+- Stream input through the target's forward-only porting implementation.
 - Avoid `stdio`, POSIX file APIs, FatFs, an RTOS, and vendor BSP dependencies in
   the decoder core.
 - Decode incrementally without `DGifSlurp()` or accumulating `SavedImages`.
 - Composite frames into a framebuffer owned by the caller.
-- Keep display, cache management, frame delays, and storage adapters in the
-  application or platform layer.
+- Keep display, cache management, and frame delays in the application, and
+  storage access exclusively in `gif_porting.c`.
 - Preserve the proven giflib parser and LZW implementation with minimal,
   documented changes.
 
 ```text
-platform byte source
-        |
-   read callback
-        |
-========================
-  portability boundary
-========================
-        |
-  public decoder facade
-        |
- streaming compositor
-        |
- private trimmed giflib
-    parser + LZW
+application
+    |
+gif_decoder.h / gif_decoder.c       fixed public API
+    |
+    +---- gif_porting.h ------------ fixed port contract
+    |          |
+    |     gif_porting.c ------------ only user-editable port file
+    |
+gif_decoder_core.h / .c ----------- hidden decoder implementation
+    |
+private trimmed giflib ------------ parser + LZW
 ```
 
 ## Current status
@@ -55,28 +52,29 @@ Completed:
 - image pixel-count overflow protection;
 - preservation of the underlying `DGifOpen()` error;
 - an opaque public decoder facade;
-- a short-read-aware byte-source callback with distinct EOF and I/O errors;
+- a short-read-aware porting bridge with distinct EOF and I/O errors;
 - platform-independent stream information and status mapping;
 - caller-owned output surfaces with checked capacity and arbitrary stride;
 - streaming non-interlaced RGB888 and BGR888 frame composition;
-- global and local color tables, partial image rectangles, and disposal 0/1.
+- global and local color tables, partial image rectangles, and disposal 0/1;
+- fixed public, hidden-core, and single-file platform-porting boundaries.
 
 The next stage will add Graphic Control Extension state, transparency, and
 animation timing metadata. Later stages will add disposal modes 2/3, RGBA
-output, and interlace handling. Allocator abstraction and platform adapters are
-intentionally deferred until the streaming architecture is stable.
+output, and interlace handling. Allocator abstraction and optional ready-made
+storage adapters remain deferred until the streaming architecture is stable;
+the stable three-function port contract is now in place.
 
 ## Public API
 
 Applications include only `gif_decoder.h`. The decoder is opaque, and the
-application supplies input through `GifReadCallback`:
+application selects a source without including a filesystem or driver header:
 
 ```c
 #include <gif_decoder.h>
 
 GifDecoderConfig config = {
-    .read = application_read,
-    .io_context = &application_source,
+    .source_identifier = "0:/animation.gif",
 };
 GifDecoder *decoder = NULL;
 GifStreamInfo stream;
@@ -102,11 +100,11 @@ if (status == GIF_STATUS_OK) {
 }
 ```
 
-The read callback reports both a `GifReadStatus` and the actual byte count.
-`GIF_READ_OK` may return a non-zero short read; the internal bridge continues
-reading until giflib's request is satisfied. `GIF_READ_EOF` and
-`GIF_READ_IO_ERROR` remain distinct and are mapped to public decoder statuses.
-The callback does not receive or expose any giflib type.
+The target implementation in `gif_porting.c` decides how to interpret the
+opaque source identifier and supplies forward-only bytes. The application does
+not implement a callback and does not receive or expose a giflib, FatFs, stdio,
+or BSP type. See [PORTING.md](PORTING.md) for the complete three-function port
+contract and a minimal FatFs mapping.
 
 At the current stage, interlaced images, transparency, non-zero frame delays,
 user-input GCEs, disposal modes 2/3, and Plain Text Extensions return
@@ -117,8 +115,9 @@ semantics.
 
 The library requires a C99 compiler and the basic C runtime facilities used by
 the trimmed giflib core, including `malloc`, `calloc`, `realloc`, `free`, and
-memory/string operations. It does not open files and has no direct dependency
-on a filesystem implementation.
+memory/string operations. The fixed facade and hidden core do not open files
+and have no direct filesystem dependency; only the user-supplied
+`gif_porting.c` may do so.
 
 ## Build and test
 
@@ -144,18 +143,26 @@ This produces the `giflib_embedded` static library. Toolchain installation
 paths and target-specific compiler flags belong in the caller's toolchain file,
 not in this repository.
 
+The repository's `gif_porting.c` is a compile-safe, unconfigured template.
+Implement its open/read/close bodies for the target before decoding. No other
+library or application file needs platform storage glue.
+
 `cmake --install build --prefix <destination>` installs only the static library
 and the public `gif_decoder.h` header; private giflib headers are not installed.
 
 ## Repository layout
 
 - `include/gif_decoder.h`: the only application-facing public header.
-- `gif_decoder.c`: opaque facade and byte-source bridge.
+- `gif_decoder.c`: fixed public facade and port-to-core dispatch.
+- `gif_decoder_core.c`, `gif_decoder_core.h`: hidden decoder and compositor.
+- `gif_porting.c`: the only user-editable platform integration file.
+- `gif_porting.h`: fixed, platform-neutral porting contract.
 - `dgif_lib.c`, `gifalloc.c`, `gif_err.c`: trimmed giflib decoder core.
 - `gif_lib.h`, `gif_lib_private.h`: low-level and private giflib interfaces.
 - `openbsd-reallocarray.c`: overflow-safe allocation compatibility helper.
 - `tests/`: host-side regression tests.
 - `CMakeLists.txt`: host and cross-compilation build definition.
+- `PORTING.md`: port ownership, read semantics, and FatFs mapping.
 - `COMMENTING_STYLE.md`: repository-wide source documentation convention.
 
 ## Source documentation

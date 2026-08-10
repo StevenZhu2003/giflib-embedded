@@ -3,13 +3,20 @@ cmake_minimum_required(VERSION 3.16)
 
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
-# Decoder facade plus the retained giflib parser and LZW implementation.
-add_library(giflib_embedded STATIC
-    gif_decoder.c
+# Hidden decoder core plus the retained giflib parser and LZW implementation.
+set(GIFLIB_DECODER_CORE_SOURCES
+    gif_decoder_core.c
     dgif_lib.c
     gifalloc.c
     gif_err.c
     openbsd-reallocarray.c
+)
+
+# Fixed public facade, user-editable port, and hidden implementation.
+add_library(giflib_embedded STATIC
+    gif_decoder.c
+    gif_porting.c
+    ${GIFLIB_DECODER_CORE_SOURCES}
 )
 add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
 
@@ -99,8 +106,15 @@ if(GIFLIB_BUILD_TESTS)
     # Exercise the public facade and streaming-compositor contract.
     add_executable(gif_decoder_facade_tests
         tests/test_decoder.c
+        tests/test_porting.c
+        gif_decoder.c
+        ${GIFLIB_DECODER_CORE_SOURCES}
     )
-    target_link_libraries(gif_decoder_facade_tests PRIVATE giflib_embedded)
+    target_include_directories(gif_decoder_facade_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
     giflib_configure_test(gif_decoder_facade_tests)
 
     # Compile each boundary header without relying on accidental prior includes.
@@ -123,6 +137,31 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
     )
     set_target_properties(gif_decoder_public_header_check PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+
+    add_library(gif_decoder_core_header_check OBJECT
+        tests/core_header_self_contained.c
+    )
+    target_include_directories(gif_decoder_core_header_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    set_target_properties(gif_decoder_core_header_check PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+
+    add_library(gif_porting_header_check OBJECT
+        tests/porting_header_self_contained.c
+    )
+    target_include_directories(gif_porting_header_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    set_target_properties(gif_porting_header_check PROPERTIES
         C_STANDARD 99
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS NO

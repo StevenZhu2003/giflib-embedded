@@ -5,21 +5,10 @@
 
 #include "gif_decoder.h"
 
-#include <stdbool.h>
+#include "test_porting.h"
+
 #include <stdio.h>
 #include <string.h>
-
-/** @brief In-memory byte stream used to exercise the input callback contract. */
-typedef struct MemorySource {
-    const uint8_t *data;       /**< Immutable source bytes. */
-    size_t size;               /**< Total number of source bytes. */
-    size_t offset;             /**< Offset of the next unread byte. */
-    size_t max_chunk;          /**< Maximum bytes returned per callback. */
-    size_t error_offset;       /**< Offset at which an I/O error is raised. */
-    size_t read_calls;         /**< Number of callback invocations. */
-    bool inject_error;         /**< Whether fault injection is enabled. */
-    bool eof_with_final_bytes; /**< Whether the last data also reports EOF. */
-} MemorySource;
 
 /** @brief Number of failed checks observed by this test executable. */
 static int failures;
@@ -165,71 +154,9 @@ static void memory_source_init(MemorySource *source,
 }
 
 /**
- * @brief Implement the decoder read callback over an in-memory byte array.
- *
- * @param[in,out] io_context      Pointer to a MemorySource object.
- * @param[out] destination        Buffer that receives source bytes.
- * @param[in] requested_bytes     Maximum number of bytes to return.
- * @param[out] actual_bytes       Number of bytes actually returned.
- * @return Callback status describing data, EOF, or an injected I/O error.
- */
-static GifReadStatus memory_source_read(void *io_context,
-                                        uint8_t *destination,
-                                        size_t requested_bytes,
-                                        size_t *actual_bytes) {
-    MemorySource *source = (MemorySource *)io_context;
-    size_t available;
-    size_t amount;
-
-    if (actual_bytes == NULL) {
-        return GIF_READ_IO_ERROR;
-    }
-    *actual_bytes = 0;
-
-    if (source == NULL || destination == NULL || requested_bytes == 0) {
-        return GIF_READ_IO_ERROR;
-    }
-
-    source->read_calls++;
-    if (source->inject_error && source->offset >= source->error_offset) {
-        return GIF_READ_IO_ERROR;
-    }
-    if (source->offset >= source->size) {
-        return GIF_READ_EOF;
-    }
-
-    available = source->size - source->offset;
-    amount = requested_bytes;
-    if (amount > available) {
-        amount = available;
-    }
-    if (source->max_chunk != 0 && amount > source->max_chunk) {
-        amount = source->max_chunk;
-    }
-    if (source->inject_error &&
-        source->offset + amount > source->error_offset) {
-        amount = source->error_offset - source->offset;
-    }
-
-    if (amount != 0) {
-        memcpy(destination, source->data + source->offset, amount);
-        source->offset += amount;
-        *actual_bytes = amount;
-    }
-
-    if (source->inject_error && source->offset >= source->error_offset) {
-        return GIF_READ_IO_ERROR;
-    }
-    if (source->eof_with_final_bytes && source->offset == source->size) {
-        return GIF_READ_EOF;
-    }
-    return GIF_READ_OK;
-}
-
-/**
  * @brief Open a decoder whose input is supplied by a MemorySource object.
  *
- * @param[in,out] source Source object passed to the read callback.
+ * @param[in,out] source Source object selected through the public config.
  * @param[out] decoder   Receives the opened decoder on success.
  * @param[out] stream    Receives logical-screen metadata on success.
  * @return Decoder status returned by gif_decoder_open().
@@ -239,8 +166,7 @@ static GifStatus open_source(MemorySource *source,
                              GifStreamInfo *stream) {
     GifDecoderConfig config;
 
-    config.read = memory_source_read;
-    config.io_context = source;
+    config.source_identifier = source;
     return gif_decoder_open(&config, decoder, stream);
 }
 
@@ -285,6 +211,7 @@ static void test_open_memory_source(void) {
     CHECK(stream.color_resolution == 1);
     CHECK(stream.has_global_color_table == 1);
     gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1);
 }
 
 /** @brief Verify that successful short reads are accumulated correctly. */
@@ -305,7 +232,7 @@ static void test_legal_short_reads(void) {
     gif_decoder_close(decoder);
 }
 
-/** @brief Accept a callback that returns final bytes together with EOF. */
+/** @brief Accept a port read that returns final bytes together with EOF. */
 static void test_final_bytes_with_eof(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -321,6 +248,22 @@ static void test_final_bytes_with_eof(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Map a platform source-open failure without issuing a close. */
+static void test_port_open_error(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+
+    memory_source_init(&source, gif_header_with_palette,
+                       sizeof(gif_header_with_palette));
+    source.inject_open_error = true;
+
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_IO_ERROR);
+    CHECK(decoder == NULL);
+    CHECK(source.read_calls == 0);
+    CHECK(source.close_calls == 0);
+}
+
 /** @brief Map a truncated logical-screen descriptor to unexpected EOF. */
 static void test_unexpected_eof(void) {
     MemorySource source;
@@ -332,9 +275,10 @@ static void test_unexpected_eof(void) {
     CHECK(open_source(&source, &decoder, &stream) ==
           GIF_STATUS_UNEXPECTED_EOF);
     CHECK(decoder == NULL);
+    CHECK(source.close_calls == 1);
 }
 
-/** @brief Preserve an input callback I/O error during decoder open. */
+/** @brief Preserve a port read I/O error during decoder open. */
 static void test_injected_io_error(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -347,6 +291,7 @@ static void test_injected_io_error(void) {
 
     CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_IO_ERROR);
     CHECK(decoder == NULL);
+    CHECK(source.close_calls == 1);
 }
 
 /** @brief Reject an input whose GIF signature is malformed. */
@@ -403,6 +348,7 @@ static void test_oom_mapping(void) {
 
     CHECK(status == GIF_STATUS_OUT_OF_MEMORY);
     CHECK(decoder == NULL);
+    CHECK(source.close_calls == 1);
     CHECK(giflib_test_outstanding_allocations() == allocations_before);
 #endif
 }
@@ -660,7 +606,7 @@ static void test_unsupported_features(void) {
                           sizeof(gif_with_disposal_two));
 }
 
-/** @brief Distinguish callback I/O failure from EOF during frame decoding. */
+/** @brief Distinguish port read I/O failure from EOF during frame decoding. */
 static void test_frame_read_failures(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -788,6 +734,7 @@ int main(void) {
     test_open_memory_source();
     test_legal_short_reads();
     test_final_bytes_with_eof();
+    test_port_open_error();
     test_unexpected_eof();
     test_injected_io_error();
     test_malformed_header();

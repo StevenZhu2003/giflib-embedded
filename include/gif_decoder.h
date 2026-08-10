@@ -34,36 +34,15 @@ typedef enum GifStatus {
     GIF_STATUS_INVALID_STATE = 10       /**< Operation is invalid in current state. */
 } GifStatus;
 
-/** @brief Terminal and non-terminal results produced by a byte source. */
-typedef enum GifReadStatus {
-    GIF_READ_OK = 0,      /**< Bytes were produced and more input may follow. */
-    GIF_READ_EOF = 1,     /**< Final bytes were produced or no bytes remain. */
-    GIF_READ_IO_ERROR = 2 /**< Source failed; any reported bytes remain valid. */
-} GifReadStatus;
-
 /**
- * @brief Read bytes from an application-owned input source.
+ * @brief Application configuration required to select one GIF source.
  *
- * `GIF_READ_OK` may legally return fewer bytes than requested, but it must
- * return at least one byte. `GIF_READ_EOF` and `GIF_READ_IO_ERROR` may return
- * final valid bytes before making the condition terminal. `actual_bytes` must
- * never exceed `requested_bytes`.
- *
- * @param[in] io_context       Opaque application context from the config.
- * @param[out] destination     Buffer that receives source bytes.
- * @param[in] requested_bytes  Maximum number of bytes to copy.
- * @param[out] actual_bytes    Number of valid bytes placed in destination.
- * @return Source status associated with this read operation.
+ * The application selects a resource but does not perform platform I/O. The
+ * target's `gif_porting.c` implementation defines how the opaque identifier is
+ * interpreted. For example, a FatFs port may treat it as a path string.
  */
-typedef GifReadStatus (*GifReadCallback)(void *io_context,
-                                         uint8_t *destination,
-                                         size_t requested_bytes,
-                                         size_t *actual_bytes);
-
-/** @brief Configuration required to open a GIF byte stream. */
 typedef struct GifDecoderConfig {
-    GifReadCallback read; /**< Application byte-source callback. */
-    void *io_context;     /**< Opaque context forwarded to the callback. */
+    const void *source_identifier; /**< Resource interpreted by the port. */
 } GifDecoderConfig;
 
 /** @brief Logical-screen information available immediately after open. */
@@ -112,7 +91,7 @@ typedef struct GifFrameInfo {
  *
  * On failure, `*out_decoder` is set to `NULL` and `*out_stream` is cleared.
  *
- * @param[in] config          Byte-source configuration.
+ * @param[in] config          Platform-neutral source selection.
  * @param[out] out_decoder    Receives a newly allocated decoder handle.
  * @param[out] out_stream     Receives logical-screen information.
  * @return `GIF_STATUS_OK` on success, otherwise an argument, source, format,

@@ -86,21 +86,27 @@ The following files were written for this project and are not copied from
 giflib:
 
 - `include/gif_decoder.h` defines the opaque, platform-independent public API,
-  byte-source contract, output-surface types, frame information, and public
+  source-selection config, output-surface types, frame information, and public
   status model.
-- `gif_decoder.c` implements the public facade, short-read bridge, error
-  mapping, output validation, RGB888/BGR888 streaming compositor, and explicit
-  unsupported-feature handling. It calls the retained giflib decoder but is
-  not an upstream giflib source file.
+- `gif_decoder.c` implements the fixed application facade and dispatch between
+  the platform port and hidden decoder. `gif_decoder_core.c` and
+  `gif_decoder_core.h` implement the private short-read bridge, error mapping,
+  output validation, RGB888/BGR888 streaming compositor, and explicit
+  unsupported-feature handling.
+- `gif_porting.c` and `gif_porting.h` define the project-original platform
+  integration skeleton and its stable open/read/close contract. They contain no
+  source copied from FatFs, a vendor BSP, or another storage implementation.
 - `CMakeLists.txt` defines this project's host, cross-compilation, test, and
   installation build.
 - `tests/private_header_self_contained.c`,
-  `tests/public_header_self_contained.c`, `tests/test_allocator.c`,
-  `tests/test_decoder.c`, and `tests/test_regression.c` are this project's
-  portability and regression tests. Their small in-memory GIF byte fixtures
-  were created for these tests.
-- `README.md`, `.gitignore`, `LICENSE`, and this notice were written or selected
-  for this repository.
+  `tests/public_header_self_contained.c`,
+  `tests/core_header_self_contained.c`,
+  `tests/porting_header_self_contained.c`, `tests/test_allocator.c`,
+  `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and
+  `tests/test_regression.c` are this project's portability and regression
+  tests. Their small in-memory GIF byte fixtures were created for these tests.
+- `README.md`, `PORTING.md`, `COMMENTING_STYLE.md`, `.gitignore`, `LICENSE`, and
+  this notice were written or selected for this repository.
 
 Project-original work is Copyright (c) 2026 Steven Zhu and is licensed under
 the MIT License in [LICENSE](LICENSE).
