@@ -131,6 +131,9 @@ RGB888 framebuffer, hands every completed canvas to a display boundary, and
 applies frame delays in application code. The hosted backend writes standard
 PPM frame captures; an embedded project replaces only that display/time backend
 with its own implementation. No platform SDK or filesystem is required.
+The bundled animation was created specifically for this repository and was not
+downloaded or adapted from external media; its detailed provenance and license
+are documented in the example README and `THIRD_PARTY_NOTICES.md`.
 
 ## Dependencies
 

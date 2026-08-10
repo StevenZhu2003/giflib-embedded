@@ -20,6 +20,26 @@ The animation and its C byte representation were created for this project and
 are not copied from external media. No platform SDK, filesystem, display
 library, or other third-party component is bundled or required.
 
+## Animation asset origin and license
+
+`assets/device_boot.gif` was created locally and specifically for this
+repository. It was not downloaded from the Internet and does not contain or
+adapt an external photograph, illustration, icon, logo, font, or other media
+asset. Its frames were drawn programmatically from project-original geometric
+shapes and a project-selected color palette, then encoded as a 128 x 64 GIF.
+
+A one-off local authoring script used Pillow 11.0.0 to draw and encode the
+animation. Neither that script nor Pillow is included in this repository, and
+Pillow is not a build, link, run-time, or target dependency. The
+[official Pillow documentation](https://pillow.readthedocs.io/en/stable/about.html#license)
+identifies it as MIT-CMU licensed.
+
+The animation content is project-original work, Copyright (c) 2026 Steven Zhu,
+and is distributed under the repository's [MIT License](../../LICENSE).
+`demo_animation.c` is a byte-for-byte C representation of the same GIF rather
+than a separate external asset. The provenance boundary is also recorded in
+[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+
 ## Application structure
 
 - `main.c` owns the player lifecycle, fixed framebuffer, frame loop, display

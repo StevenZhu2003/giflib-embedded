@@ -116,14 +116,31 @@ giflib:
   display-library source.
 - `examples/embedded_player/assets/device_boot.gif` is a project-original
   128 x 64 device-status animation created for this repository; it is not
-  copied or adapted from external media. `demo_animation.c` and
-  `demo_animation.h` are its mechanically generated embedded C
-  representation and declarations.
+  downloaded, copied, or adapted from external media and contains no external
+  artwork, icon, logo, font, or brand asset. Its frames were generated locally
+  from project-original geometric shapes and colors. `demo_animation.c` and
+  `demo_animation.h` are its mechanically generated embedded C representation
+  and declarations.
 - `README.md`, `docs/PORTING_GUIDE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`,
   `LICENSE`, and this notice were written or selected for this repository.
 
 Project-original work is Copyright (c) 2026 Steven Zhu and is licensed under
 the MIT License in [LICENSE](LICENSE).
+
+## External authoring tools used but not bundled
+
+### Pillow 11.0.0
+
+A one-off local script used Pillow to draw the project-original geometric
+animation and encode `examples/embedded_player/assets/device_boot.gif`. No
+Pillow source, binary, generated wrapper, or authoring script is included in
+this repository. Pillow is not used by CMake, the decoder library, the example
+build, tests, or target applications. The committed GIF contains original
+project artwork rather than Pillow sample media or other third-party content.
+
+Pillow is an authoring tool only, not a distributed project component. The
+official Pillow documentation states that Pillow is licensed under the
+MIT-CMU License: <https://pillow.readthedocs.io/en/stable/about.html#license>.
 
 ## External integrations referenced but not bundled
 
