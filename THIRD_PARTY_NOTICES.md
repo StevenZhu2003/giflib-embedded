@@ -7,8 +7,9 @@ made during the embedded port.
 
 The repository-level [LICENSE](LICENSE) applies to the project-original code
 and modifications. It does not replace or remove any upstream copyright. The
-giflib license text is retained in [COPYING](COPYING), and available SPDX
-copyright and license statements remain in the upstream-derived source files.
+giflib license text is retained in
+[vendor/giflib/COPYING](vendor/giflib/COPYING), and available SPDX copyright
+and license statements remain in the upstream-derived source files.
 
 ## giflib 6.1.3
 
@@ -28,18 +29,20 @@ authors and contributors retain copyright in the code derived from giflib.
 The following files contain substantial upstream giflib implementation or API
 code and must not be treated as project-original work:
 
-- `dgif_lib.c` contains the callback-based GIF parser, record and extension
-  reader, image descriptor handling, LZW setup/decompression, low-level scanline
-  decode, close logic, and retained slurp-related implementation from giflib.
-- `gifalloc.c` contains giflib color-map, extension-block, and saved-image
-  allocation helpers.
-- `gif_err.c` contains giflib's decoder error-to-string mapping.
-- `gif_lib.h` contains the trimmed giflib data types, decoder declarations,
-  error codes, extension definitions, and allocation helper declarations.
-- `gif_lib_private.h` contains giflib's private decoder/LZW state and internal
-  constants.
-- `openbsd-reallocarray.c` is the reallocarray compatibility implementation
-  shipped by giflib and attributed upstream to Otto Moerbeek.
+- `vendor/giflib/dgif_lib.c` contains the callback-based GIF parser, record and
+  extension reader, image descriptor handling, LZW setup/decompression,
+  low-level scanline decode, close logic, and retained slurp-related
+  implementation from giflib.
+- `vendor/giflib/gifalloc.c` contains giflib color-map, extension-block, and
+  saved-image allocation helpers.
+- `vendor/giflib/gif_err.c` contains giflib's decoder error-to-string mapping.
+- `vendor/giflib/gif_lib.h` contains the trimmed giflib data types, decoder
+  declarations, error codes, extension definitions, and allocation helper
+  declarations.
+- `vendor/giflib/gif_lib_private.h` contains giflib's private decoder/LZW state
+  and internal constants.
+- `vendor/giflib/openbsd-reallocarray.c` is the reallocarray compatibility
+  implementation shipped by giflib and attributed upstream to Otto Moerbeek.
 
 ### Changes made to the giflib-derived code
 
@@ -52,8 +55,8 @@ correctness work:
 - Direct filename, file-descriptor, stdio, POSIX, and Windows file-opening
   paths are omitted. Input reaches the retained decoder only through giflib's
   callback entry point.
-- `dgif_lib.c` no longer includes unused `stdio.h`, `fcntl.h`, `unistd.h`, or
-  `io.h` platform headers.
+- `vendor/giflib/dgif_lib.c` no longer includes unused `stdio.h`, `fcntl.h`,
+  `unistd.h`, or `io.h` platform headers.
 - The callback-based decoding path and giflib LZW algorithm are retained; the
   new facade uses `DGifGetImageHeader()` and `DGifGetLine()` and does not use
   `DGifSlurp()` or `DGifGetImageDesc()`.
@@ -62,17 +65,17 @@ correctness work:
 - `DGifOpen()` was changed to preserve the actual logical-screen read or
   allocation error instead of replacing it with a generic screen-descriptor
   error.
-- `gif_lib_private.h` directly includes the standard integer header it needs,
-  making the private header self-contained.
+- `vendor/giflib/gif_lib_private.h` directly includes the standard integer
+  header it needs, making the private header self-contained.
 - A loop index type was aligned with giflib's signed color-count type to avoid
   a signed/unsigned compiler warning.
-- The malformed SPDX copyright field in `gif_err.c` was corrected without
-  changing the credited author.
+- The malformed SPDX copyright field in `vendor/giflib/gif_err.c` was corrected
+  without changing the credited author.
 - Existing comments in giflib-derived code are intentionally retained in their
   upstream form. The project's Doxygen-compatible style applies to
   project-original files and to new comments that specifically document port
   changes; it is not used to rewrite upstream commentary for appearance.
-- The retained `openbsd-reallocarray.c` variant removes `errno` and
+- The retained `vendor/giflib/openbsd-reallocarray.c` variant removes `errno` and
   `sys/types.h` dependencies for the embedded core. It still performs the
   upstream overflow check and returns `NULL` for overflow or zero-size input,
   but it does not set `errno`.
@@ -88,14 +91,15 @@ giflib:
 - `include/gif_decoder.h` defines the opaque, platform-independent public API,
   source-selection config, output-surface types, frame information, and public
   status model.
-- `gif_decoder.c` implements the fixed application facade and dispatch between
-  the platform port and hidden decoder. `gif_decoder_core.c` and
-  `gif_decoder_core.h` implement the private short-read bridge, error mapping,
-  output validation, RGB888/BGR888 streaming compositor, and explicit
+- `src/gif_decoder.c` implements the fixed application facade and dispatch
+  between the platform port and hidden decoder. `src/gif_decoder_core.c` and
+  `src/gif_decoder_core.h` implement the private short-read bridge, error
+  mapping, output validation, RGB888/BGR888 streaming compositor, and explicit
   unsupported-feature handling.
-- `gif_porting.c` and `gif_porting.h` define the project-original platform
-  integration skeleton and its stable open/read/close contract. They contain no
-  source copied from FatFs, a vendor BSP, or another storage implementation.
+- `port/gif_porting.c` and `port/gif_porting.h` define the project-original
+  platform integration skeleton and its stable open/read/close contract. They
+  contain no source copied from a filesystem, device driver, or storage
+  implementation.
 - `CMakeLists.txt` defines this project's host, cross-compilation, test, and
   installation build.
 - `tests/private_header_self_contained.c`,
@@ -105,8 +109,8 @@ giflib:
   `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and
   `tests/test_regression.c` are this project's portability and regression
   tests. Their small in-memory GIF byte fixtures were created for these tests.
-- `README.md`, `PORTING.md`, `COMMENTING_STYLE.md`, `.gitignore`, `LICENSE`, and
-  this notice were written or selected for this repository.
+- `README.md`, `docs/PORTING_GUIDE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`,
+  `LICENSE`, and this notice were written or selected for this repository.
 
 Project-original work is Copyright (c) 2026 Steven Zhu and is licensed under
 the MIT License in [LICENSE](LICENSE).

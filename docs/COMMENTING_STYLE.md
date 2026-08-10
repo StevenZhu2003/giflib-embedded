@@ -1,9 +1,8 @@
 # Source commenting style
 
 Project-original code uses a Doxygen-compatible documentation style based on
-conventions commonly used in embedded libraries such as STM32 HAL, FatFs, and
-vendor BSPs. Existing comments in giflib-derived code are deliberately kept in
-their upstream form.
+conventions common to established embedded C libraries. Existing comments in
+giflib-derived code are deliberately kept in their upstream form.
 
 ## Documentation blocks
 

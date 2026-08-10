@@ -1,6 +1,6 @@
 /**
  * @file gif_decoder.c
- * @brief Fixed application-facing facade for the embedded GIF decoder.
+ * @brief Fixed application-facing facade for the portable GIF decoder.
  *
  * Ordinary users call only the functions in this file through
  * `gif_decoder.h`. Platform integration belongs exclusively in

@@ -2,7 +2,7 @@
  * @file gif_porting.c
  * @brief Single user-editable platform integration point for GIF input.
  *
- * This template deliberately has no stdio, FatFs, BSP, RTOS, or device-driver
+ * This template deliberately has no stdio, filesystem, RTOS, or device-driver
  * dependency. A platform port replaces the three function bodies below and
  * adds any required platform includes in this file only. Do not add storage
  * glue to `main()`, `gif_decoder.c`, or the hidden decoder core.

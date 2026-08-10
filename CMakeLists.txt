@@ -5,17 +5,17 @@ project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
 # Hidden decoder core plus the retained giflib parser and LZW implementation.
 set(GIFLIB_DECODER_CORE_SOURCES
-    gif_decoder_core.c
-    dgif_lib.c
-    gifalloc.c
-    gif_err.c
-    openbsd-reallocarray.c
+    src/gif_decoder_core.c
+    vendor/giflib/dgif_lib.c
+    vendor/giflib/gifalloc.c
+    vendor/giflib/gif_err.c
+    vendor/giflib/openbsd-reallocarray.c
 )
 
 # Fixed public facade, user-editable port, and hidden implementation.
 add_library(giflib_embedded STATIC
-    gif_decoder.c
-    gif_porting.c
+    src/gif_decoder.c
+    port/gif_porting.c
     ${GIFLIB_DECODER_CORE_SOURCES}
 )
 add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
@@ -26,7 +26,9 @@ target_include_directories(giflib_embedded
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
         "$<INSTALL_INTERFACE:include>"
     PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
 )
 
 set_target_properties(giflib_embedded PROPERTIES
@@ -99,7 +101,7 @@ if(GIFLIB_BUILD_TESTS)
     )
     target_link_libraries(giflib_regression_tests PRIVATE giflib_embedded)
     target_include_directories(giflib_regression_tests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_configure_test(giflib_regression_tests)
 
@@ -107,13 +109,15 @@ if(GIFLIB_BUILD_TESTS)
     add_executable(gif_decoder_facade_tests
         tests/test_decoder.c
         tests/test_porting.c
-        gif_decoder.c
+        src/gif_decoder.c
         ${GIFLIB_DECODER_CORE_SOURCES}
     )
     target_include_directories(gif_decoder_facade_tests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_configure_test(gif_decoder_facade_tests)
 
@@ -122,7 +126,7 @@ if(GIFLIB_BUILD_TESTS)
         tests/private_header_self_contained.c
     )
     target_include_directories(giflib_private_header_check PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     set_target_properties(giflib_private_header_check PROPERTIES
         C_STANDARD 99
@@ -146,8 +150,9 @@ if(GIFLIB_BUILD_TESTS)
         tests/core_header_self_contained.c
     )
     target_include_directories(gif_decoder_core_header_check PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
     )
     set_target_properties(gif_decoder_core_header_check PROPERTIES
         C_STANDARD 99
@@ -159,7 +164,7 @@ if(GIFLIB_BUILD_TESTS)
         tests/porting_header_self_contained.c
     )
     target_include_directories(gif_porting_header_check PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
     )
     set_target_properties(gif_porting_header_check PROPERTIES
         C_STANDARD 99

@@ -4,7 +4,7 @@
  *
  * Ordinary applications must not call this interface directly. Platform
  * maintainers implement the declared operations in `gif_porting.c`; this
- * header is intentionally platform-neutral and should not require editing.
+ * header is platform-neutral and must not require target-specific editing.
  *
  * Copyright (c) 2026 Steven Zhu
  * SPDX-License-Identifier: MIT
@@ -29,8 +29,8 @@ typedef enum GifPortingStatus {
 /**
  * @brief Open the platform resource selected by an opaque identifier.
  *
- * The port defines the meaning of @p source_identifier. A FatFs port normally
- * treats it as a path string, while a memory or flash port may interpret it as
+ * The port defines the meaning of @p source_identifier. A filesystem port may
+ * treat it as a path string, while a memory or flash port may interpret it as
  * a descriptor. Successful calls must return a non-NULL handle.
  *
  * @param[in] source_identifier Application-selected resource identifier.

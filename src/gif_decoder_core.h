@@ -1,6 +1,6 @@
 /**
  * @file gif_decoder_core.h
- * @brief Private contract between the public facade and decoder core.
+ * @brief Private contract between the fixed facade and hidden decoder core.
  *
  * This header is an implementation detail. Applications and platform ports
  * must not include it; use `gif_decoder.h` and implement `gif_porting.c`.

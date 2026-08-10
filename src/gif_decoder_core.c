@@ -1,6 +1,6 @@
 /**
  * @file gif_decoder_core.c
- * @brief Hidden streaming decoder implementation built on trimmed giflib.
+ * @brief Hidden streaming implementation of the portable GIF decoder.
  *
  * Copyright (c) 2026 Steven Zhu
  * SPDX-License-Identifier: MIT
