@@ -1,17 +1,27 @@
 # Porting guide
 
-This guide walks through one complete port of `giflib-embedded`. It assumes
-that you are comfortable with embedded C and basic FatFs operations such as
-`f_open()`, `f_read()`, and `f_close()`. No knowledge of giflib internals is
-required.
+This guide explains how to connect `giflib-embedded` to any source that can
+supply sequential bytes. It assumes familiarity with embedded C, but no
+knowledge of giflib internals.
 
-The goal is simple: the application selects a GIF at run time, opens it through
-the public decoder API, and decodes each frame into a caller-owned framebuffer.
-Only `port/gif_porting.c` needs target-specific storage code.
+The goal is to let an application select a GIF at run time, open it through the
+public decoder API, and decode each frame into a caller-owned framebuffer. A
+normal port changes only:
+
+```text
+port/gif_porting.c
+```
+
+The main tutorial uses a deliberately imaginary storage API. Its names do not
+belong to this library and no such header exists in the repository. They stand
+for whatever byte-source operations the target already provides. A complete
+FatFs implementation appears later as one real-world mapping of the same
+model.
 
 ## 1. Start with the finished application workflow
 
-After the port is complete, an application can use the decoder like this:
+After porting, application code uses only the real public API declared in
+`gif_decoder.h`:
 
 ```c
 #include <gif_decoder.h>
@@ -25,15 +35,16 @@ After the port is complete, an application can use the decoder like this:
 
 static uint8_t framebuffer[FRAMEBUFFER_HEIGHT * FRAMEBUFFER_STRIDE];
 
-/* Application display code; this is not part of giflib-embedded. */
+/* Application services; these are not giflib-embedded APIs. */
+extern const void *application_select_gif(void);
 extern void display_framebuffer(const void *pixels,
                                 uint32_t width,
                                 uint32_t height,
                                 size_t stride_bytes);
 
-static GifStatus play_gif(const char *path) {
+static GifStatus decode_and_display(const void *resource) {
     GifDecoderConfig config = {
-        .source_identifier = path,
+        .source_identifier = resource,
     };
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
@@ -71,219 +82,231 @@ static GifStatus play_gif(const char *path) {
     return status;
 }
 
-void show_fixed_animation(void) {
-    (void)play_gif("0:/images/demo.gif");
+void show_selected_gif(void) {
+    const void *resource = application_select_gif();
+
+    if (resource != NULL) {
+        (void)decode_and_display(resource);
+    }
 }
 ```
 
-The framebuffer, display operation, and any playback timing are application
+`application_select_gif()` and `display_framebuffer()` represent product code,
+not functions supplied by this library. The selected resource might come from
+a menu, command interface, resource table, or another run-time mechanism.
+
+The framebuffer, display operation, and playback timing remain application
 responsibilities. The current public `GifFrameInfo` does not expose a frame
-delay, so this example does not invent or call one. The decoder itself never
-sleeps and never controls a display.
+delay, so the example does not invent one. The decoder never sleeps and never
+controls a display.
 
-The surface capacity and stride must be large enough for the dimensions
-returned in `GifStreamInfo`. A product can use a fixed maximum-size buffer as
-above, a pool, or another application-owned allocation policy.
+The output capacity and stride must cover the dimensions returned in
+`GifStreamInfo`. The application may use a fixed maximum-size buffer as above,
+a pool, or another caller-owned allocation policy.
 
-## 2. Why the decoder needs a porting layer
+## 2. Follow the porting boundary from the public API
 
-The application example contains this line:
+The decoder receives this application-selected value:
 
 ```c
-.source_identifier = "0:/images/demo.gif"
+config.source_identifier = resource;
 ```
 
-How does a platform-independent decoder know that this value should be passed
-to FatFs `f_open()`? It does not. That translation is the purpose of:
-
-```text
-port/gif_porting.c
-```
-
-The complete input path is:
+It deliberately does not know whether `resource` identifies a file, a memory
+object, a flash asset, or another byte source. It also does not know how the
+target opens or reads that source. `port/gif_porting.c` performs that
+translation:
 
 ```text
 Application
     |
-    | source_identifier
+    | source_identifier: which resource to open
     v
 Public decoder API
     |
     v
 port/gif_porting.c
     |
-    | open / read / close
+    | open / sequential read / close
     v
-FatFs / memory / flash / another byte source
+Target byte-source operations
+    |
+    v
+Memory / flash / filesystem / another source
 ```
 
-The application decides **what to open**. The port decides **how that resource
-is opened and read on this target**. The hidden decoder and vendored giflib code
-only consume sequential bytes.
+The application decides **what to open**. The port decides **how to open and
+read it on this target**. The hidden decoder and vendored giflib code only
+consume the resulting byte stream.
 
-For a normal target port:
+For a normal port:
 
 - edit `port/gif_porting.c`;
 - leave `port/gif_porting.h` unchanged;
-- do not add storage glue to the application entry point, public decoder
+- do not add byte-source glue to the application entry point, public decoder
   facade, hidden decoder core, or vendored giflib sources.
 
-Filesystem mounting, storage-device setup, drivers, and hardware
-initialization must already have been completed by the target application or
-platform. They are below the `giflib-embedded` porting boundary.
+Initialization below the byte-source interface remains the responsibility of
+the target application or platform. For example, a storage device, filesystem,
+memory mapping, or driver must already be ready before the decoder opens a
+resource.
 
-## 3. Select a resource at run time
+## 3. Assume one simple target byte-source API
 
-For the FatFs port built in this guide, `source_identifier` is a pointer to a
-null-terminated pathname. A fixed choice is straightforward:
-
-```c
-GifDecoderConfig config = {
-    .source_identifier = "0:/images/demo.gif",
-};
-```
-
-It is not a compile-time library setting. It means:
-
-> This decoder instance should open this resource on this call.
-
-The application can obtain that choice from a serial command interface, a
-command line, a menu, a graphical interface, or a resource table:
+To explain the port without choosing a filesystem or hardware platform, assume
+that the target already offers these imaginary operations:
 
 ```c
-char filename[128];
+typedef void *StorageHandle;
 
-if (uart_receive_line(filename, sizeof(filename))) {
-    GifDecoderConfig config = {
-        .source_identifier = filename,
-    };
-    GifDecoder *decoder = NULL;
-    GifStreamInfo stream;
+typedef enum StorageReadResult {
+    STORAGE_READ_OK = 0,
+    STORAGE_READ_EOF = 1,
+    STORAGE_READ_ERROR = 2
+} StorageReadResult;
 
-    if (gif_decoder_open(&config, &decoder, &stream) == GIF_STATUS_OK) {
-        /* Bind output, decode frames, and display them. */
-        gif_decoder_close(decoder);
-    }
-}
+StorageHandle storage_open(const void *resource);
+
+StorageReadResult storage_read(StorageHandle handle,
+                               void *buffer,
+                               size_t requested,
+                               size_t *actual);
+
+void storage_close(StorageHandle handle);
 ```
 
-`uart_receive_line()` represents application input code, not a decoder or
-porting API. The application still does not call FatFs. The same completed port
-accepts any valid pathname passed this way.
+These declarations are a teaching model, not a new dependency and not a
+proposed public API. Do not search the repository for `storage_open()` or copy
+these declarations into `gif_porting.h`. When implementing a real port,
+replace each imaginary call with the equivalent operation already available on
+the target.
 
-Only after seeing this use is the formal definition useful:
-`source_identifier` is opaque to the decoder. `gif_porting_open()` defines its
-meaning. A FatFs port can interpret it as `const char *`; a memory port can use
-a memory-source descriptor; a flash port can use an asset descriptor; another
-port can use a logical resource key. This is why the public API does not expose
-`FIL` or another storage-specific type.
+For this model:
 
-Keep the referenced identifier valid and unchanged until
-`gif_decoder_close()` unless the port explicitly documents that it consumes or
-copies the identifier during `gif_porting_open()`. The FatFs implementation
-below consumes the pathname synchronously in `f_open()` and does not retain it,
-but keeping the buffer valid through close remains a simple portable rule.
+- `storage_open()` accepts an application-selected resource and returns a
+  non-`NULL` open-source handle, or `NULL` on failure;
+- `storage_read()` supplies up to the requested number of sequential bytes and
+  reports the exact count;
+- `storage_close()` releases the open source;
+- `STORAGE_READ_EOF` means that any reported bytes are the final bytes;
+- `STORAGE_READ_ERROR` means that the source failed.
 
-## 4. Build a FatFs port step by step
-
-The repository supplies a compile-safe stub in `port/gif_porting.c`. Replace
-the three function bodies in that file and add the FatFs include there. No
-other decoder file needs to change.
-
-### 4.1 Open the selected pathname
-
-When the application calls:
-
-```c
-gif_decoder_open(&config, &decoder, &stream);
-```
-
-the decoder calls `gif_porting_open()` before parsing the GIF header. For the
-FatFs port, the data moves through these forms:
+The whole relationship is:
 
 ```text
-source_identifier
-    |
-    | "0:/images/demo.gif"
-    v
-gif_porting_open()
-    |
-    | f_open()
-    v
-FIL object
-    |
-    v
-GifPortingHandle
+application selects a resource
+            |
+            v
+    gif_porting_open()
+            |
+            v
+      storage_open()
+
+decoder needs more bytes
+            |
+            v
+    gif_porting_read()
+            |
+            v
+      storage_read()
+
+decoder releases the source
+            |
+            v
+    gif_porting_close()
+            |
+            v
+      storage_close()
 ```
 
-Start the implementation with one static `FIL`. This deliberately supports one
-active decoder at a time:
+## 4. Implement the three porting operations
 
-```c
-#include "gif_porting.h"
+The repository provides compile-safe stubs in `port/gif_porting.c`. This
+section replaces them using the imaginary target API above while following the
+real contract in `gif_porting.h`.
 
-#include "ff.h"
+### 4.1 Open when the application opens a decoder
 
-static FIL gif_port_file;
-static int gif_port_file_is_open;
+The first part of the public call is:
+
+```text
+application
+    |
+    | gif_decoder_open(config, ...)
+    v
+decoder
+    |
+    | gif_porting_open(config->source_identifier, ...)
+    v
+target
+    |
+    | storage_open(resource)
+    v
+open byte source
 ```
 
-Then implement open:
+The adapter implementation is small:
 
 ```c
 GifPortingStatus gif_porting_open(const void *source_identifier,
                                   GifPortingHandle *out_handle) {
-    const char *path = (const char *)source_identifier;
-    FRESULT result;
+    StorageHandle source;
 
     if (out_handle == NULL) {
         return GIF_PORTING_IO_ERROR;
     }
     *out_handle = NULL;
 
-    if (path == NULL || gif_port_file_is_open) {
+    if (source_identifier == NULL) {
         return GIF_PORTING_IO_ERROR;
     }
 
-    result = f_open(&gif_port_file, path, FA_READ);
-    if (result != FR_OK) {
+    source = storage_open(source_identifier);
+    if (source == NULL) {
         return GIF_PORTING_IO_ERROR;
     }
 
-    gif_port_file_is_open = 1;
-    *out_handle = &gif_port_file;
+    *out_handle = (GifPortingHandle)source;
     return GIF_PORTING_OK;
 }
 ```
 
-The implementation first clears the output handle so every failed open leaves
-it `NULL`. It rejects a second active decoder because both instances would
-otherwise overwrite the same `FIL`. Only a completely successful `f_open()`
-publishes the handle.
+Open first clears its output, passes the opaque application resource to the
+target, and publishes a non-`NULL` porting handle only after complete success.
+The real port replaces `StorageHandle` and `storage_open()` with its target
+equivalents.
 
-### 4.2 Why `GifPortingHandle` exists
+### 4.2 Understand why a handle exists
 
-The pathname answers “which resource?”, but it does not hold the current file
-position or other state of an already open stream. After `f_open()`, the `FIL`
-object holds that state. The port returns `&gif_port_file` as a
-`GifPortingHandle`, and later reads receive the same value.
+The source identifier answers “which resource should be opened?” It does not
+necessarily contain the state of an already open stream, such as its current
+read position.
 
-The decoder stores the handle but never interprets it. In this port it is a
-`FIL *`; in another port it could point to memory stream state, a flash-reader
-descriptor, a fixed-pool slot, or a port-allocated object. That is why the
-contract declares it as an opaque `void *`.
+```text
+source_identifier
+    |
+    | selects a resource
+    v
+storage_open()
+    |
+    | creates or acquires open-stream state
+    v
+StorageHandle
+    |
+    | returned through the porting boundary
+    v
+GifPortingHandle
+```
 
-The static object keeps this first implementation small. If the product needs
-multiple decoders open concurrently, replace it with independent per-stream
-state, such as a fixed-size port-owned pool. That policy remains entirely in
-`gif_porting.c`.
+The decoder stores `GifPortingHandle` but never interprets it. In a real port
+it may represent a file object, a memory-stream cursor, a flash-reader state
+object, or a slot in a fixed pool. The handle is opaque so none of those target
+types leak into the public decoder API.
 
-### 4.3 Read bytes while frames are decoded
+### 4.3 Read whenever the decoder needs input
 
-The application never calls `gif_porting_read()` directly. After the port is
-opened, `gif_decoder_open()` uses it to read the GIF header and logical-screen
-data. Later, `gif_decoder_next_frame()` uses it whenever a frame needs more
-input bytes:
+The application never calls `gif_porting_read()` directly. Reads can occur in
+both public operations:
 
 ```text
 gif_decoder_open()              gif_decoder_next_frame()
@@ -295,21 +318,17 @@ gif_decoder_open()              gif_decoder_next_frame()
                  gif_porting_read()
                          |
                          v
-                      f_read()
+                   storage_read()
 ```
 
-Add `<limits.h>` and implement the sequential read:
+Map the imaginary target results to the real porting statuses:
 
 ```c
-#include <limits.h>
-
 GifPortingStatus gif_porting_read(GifPortingHandle handle,
                                   uint8_t *destination,
                                   size_t requested_bytes,
                                   size_t *actual_bytes) {
-    UINT request;
-    UINT bytes_read = 0;
-    FRESULT result;
+    StorageReadResult result;
 
     if (actual_bytes == NULL) {
         return GIF_PORTING_IO_ERROR;
@@ -320,81 +339,136 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
         return GIF_PORTING_IO_ERROR;
     }
 
-    request = requested_bytes > (size_t)UINT_MAX
-                  ? (UINT)UINT_MAX
-                  : (UINT)requested_bytes;
-    result = f_read((FIL *)handle, destination, request, &bytes_read);
-    *actual_bytes = (size_t)bytes_read;
+    result = storage_read((StorageHandle)handle,
+                          destination,
+                          requested_bytes,
+                          actual_bytes);
 
-    if (result != FR_OK) {
+    if (*actual_bytes > requested_bytes) {
+        *actual_bytes = 0;
         return GIF_PORTING_IO_ERROR;
     }
-    if (bytes_read < request) {
+
+    switch (result) {
+    case STORAGE_READ_OK:
+        return *actual_bytes != 0 ? GIF_PORTING_OK
+                                  : GIF_PORTING_IO_ERROR;
+    case STORAGE_READ_EOF:
         return GIF_PORTING_EOF;
+    case STORAGE_READ_ERROR:
+    default:
+        return GIF_PORTING_IO_ERROR;
     }
-    return GIF_PORTING_OK;
 }
 ```
 
-`requested_bytes` is the maximum amount the decoder currently wants.
-`actual_bytes` is the exact amount the port placed in `destination`. The
-`UINT_MAX` limit prevents a `size_t` request from being narrowed silently when
-the storage API uses a smaller request type. If capped, a successful read lets
-the decoder request the remainder later.
+`requested_bytes` is the maximum amount currently requested by the decoder.
+`actual_bytes` is the exact amount placed in `destination`. A positive short
+`STORAGE_READ_OK` is allowed: the decoder asks again for the remainder. An EOF
+result may accompany final valid bytes. An error result may also report bytes
+that were transferred before the failure.
 
-For an ordinary regular file, FatFs completes the request unless it reaches
-the end of the file. Therefore `FR_OK` together with
-`bytes_read < request` means that the reported bytes are the final bytes and
-maps to `GIF_PORTING_EOF`. It is not an I/O failure. A different byte source
-whose short reads do not mean EOF may return `GIF_PORTING_OK` with a positive
-short count; the decoder will ask for the remainder.
+Successful zero-byte progress is not allowed. Without this rule the decoder
+could repeatedly request data while the source never advances. The adapter
+therefore maps `STORAGE_READ_OK` with zero bytes to `GIF_PORTING_IO_ERROR`.
 
-The decoder only needs forward, sequential reads. The port does not implement
-seek, rewind, tell, file size, directory operations, or GIF parsing.
+The decoder only requires forward, sequential reads. The target abstraction
+does not need seek, rewind, tell, file-size, directory, or GIF-specific
+operations.
 
-### 4.4 Close the file on every exit path
+### 4.4 Close when the decoder releases the source
 
-When the application calls:
-
-```c
-gif_decoder_close(decoder);
-```
-
-the decoder eventually calls the port close operation:
+The normal close path is:
 
 ```text
-gif_decoder_close()
-        |
-        v
-gif_porting_close()
-        |
-        v
-     f_close()
+application
+    |
+    | gif_decoder_close(decoder)
+    v
+decoder
+    |
+    | gif_porting_close(handle)
+    v
+target
+    |
+    | storage_close(handle)
+    v
+source released
 ```
 
-Implement it as follows:
+The adapter forwards the opaque handle:
 
 ```c
 void gif_porting_close(GifPortingHandle handle) {
-    if (handle == NULL) {
-        return;
+    if (handle != NULL) {
+        storage_close((StorageHandle)handle);
     }
-
-    (void)f_close((FIL *)handle);
-    gif_port_file_is_open = 0;
 }
 ```
 
-The public decoder owns the handle after a successful open. If `f_open()`
-succeeds but the GIF header is malformed, or later decoder initialization
-fails, the decoder still calls `gif_porting_close()` exactly once. The
-application calls only `gif_decoder_close()`; it must not close the `FIL`
-directly.
+The public decoder owns the handle after successful port open. Even when the
+source opens successfully but the GIF header is malformed, allocation fails,
+or initialization stops for another reason, that handle is closed exactly
+once. The application calls `gif_decoder_close()` for a returned decoder; it
+does not call the porting or target close function directly.
 
-## 5. Complete FatFs reference implementation
+## 5. Select different resources at run time
 
-At this point the three pieces can be checked against one complete
-`port/gif_porting.c`. This version supports one active decoder:
+`source_identifier` is not a compile-time library configuration. It means:
+
+> This decoder instance should open this application-selected resource now.
+
+For example, an application can repeatedly select and decode resources:
+
+```c
+for (;;) {
+    const void *resource = application_select_gif();
+
+    if (resource != NULL) {
+        (void)decode_and_display(resource);
+    }
+}
+```
+
+The same compiled decoder and the same completed `gif_porting.c` can open
+resource A, decode and close it, then open resource B. No porting calls need to
+be added to the application entry point.
+
+The resource's concrete meaning is an agreement between the application and
+the port:
+
+- a filesystem port may use a pointer to a pathname;
+- a memory port may use a pointer to a memory-source descriptor;
+- a flash port may use an asset descriptor;
+- another port may use a logical resource key.
+
+Formally, `source_identifier` is opaque to the decoder. The decoder passes it
+unchanged to `gif_porting_open()` and does not store it after open. For portable
+application code, keep the referenced object valid and unchanged until
+`gif_decoder_close()`. A particular port may document a shorter lifetime if
+its open operation consumes or copies everything synchronously and never
+retains the original pointer.
+
+## 6. Real-world FatFs example
+
+FatFs is one concrete implementation of the generic model, not a requirement
+of the decoder:
+
+| Teaching model | FatFs implementation |
+| --- | --- |
+| application resource | null-terminated pathname |
+| `storage_open()` | `f_open()` |
+| `StorageHandle` | `FIL *` |
+| `storage_read()` | `f_read()` |
+| `storage_close()` | `f_close()` |
+
+For this port only, the application can select a pathname:
+
+```c
+(void)decode_and_display("0:/images/demo.gif");
+```
+
+The complete `port/gif_porting.c` supports one active decoder at a time:
 
 ```c
 #include "gif_porting.h"
@@ -471,6 +545,49 @@ void gif_porting_close(GifPortingHandle handle) {
     gif_port_file_is_open = 0;
 }
 ```
+
+For an ordinary regular file, a successful FatFs read fills the request unless
+it reaches the end of the file. Consequently, `FR_OK` together with
+`bytes_read < request` means that the returned bytes are the final bytes and
+maps to `GIF_PORTING_EOF`; it is not an I/O error. If the file ends exactly on
+a full request boundary, that read returns `GIF_PORTING_OK` and the next read
+reports EOF, which is also valid.
+
+The `UINT_MAX` limit prevents a `size_t` request from being silently narrowed
+when the storage API uses a smaller request type. A capped successful read lets
+the decoder request the remainder later.
+
+The static `FIL` deliberately supports only one active decoder and rejects a
+second open. Concurrent decoders require separate `FIL` objects, for example
+slots in a fixed port-owned pool.
+
+### Select FatFs path A, then path B
+
+The same port can use pathnames obtained at run time:
+
+```c
+char filename[128];
+
+for (;;) {
+    if (!application_receive_resource_name(filename, sizeof(filename))) {
+        continue;
+    }
+
+    (void)decode_and_display(filename);
+}
+```
+
+The application selects the pathname but does not call `f_open()`, `f_read()`,
+or `f_close()`. If the first input names GIF A, the decoder opens, decodes, and
+closes A. The same buffer can then name GIF B. This requires no recompilation,
+no change to `gif_porting.c`, and no FatFs glue in the application entry point.
+
+The filename buffer remains valid throughout `decode_and_display()`, including
+decoder close, and can be reused afterward. This satisfies the conservative
+identifier lifetime rule. This FatFs implementation actually consumes the
+pathname synchronously in `f_open()` and does not retain it.
+
+### Connect FatFs to the parent build
 
 The parent build must make `ff.h` and the FatFs implementation available to
 the library target. Keep machine-specific absolute paths out of this
@@ -486,43 +603,16 @@ target_link_libraries(application PRIVATE
 ```
 
 Here `platform_storage` is supplied by the parent project. This build
-composition does not create another decoder porting location: storage calls
-and their error mapping still live only in `gif_porting.c`.
+composition does not create another decoder porting location: FatFs calls and
+their error mapping still live only in `gif_porting.c`.
 
-## 6. Open GIF A and GIF B without changing the port
+Filesystem mounting, device setup, drivers, and hardware initialization must
+already have been completed below the decoder's porting boundary.
 
-A pathname is selected per decoder instance, so the same built library can
-open different files at run time:
+## 7. Memory-backed example
 
-```c
-char filename[128];
-
-for (;;) {
-    if (!uart_receive_line(filename, sizeof(filename))) {
-        continue;
-    }
-
-    (void)play_gif(filename);
-}
-```
-
-If the first input is `0:/images/a.gif`, `play_gif()` opens, decodes, displays,
-and closes A. The function then returns, the same buffer may receive
-`0:/images/b.gif`, and the unchanged `play_gif()` opens B. This requires:
-
-- no recompilation;
-- no change to `gif_porting.c`;
-- no FatFs calls in the application entry point;
-- no change to the public or hidden decoder code.
-
-The `filename` buffer remains valid and unchanged for the complete
-open/decode/close call, satisfying the conservative source-identifier lifetime
-rule. It can be reused after `gif_decoder_close()`.
-
-## 7. A short memory-backed port
-
-The abstraction is a byte-source adapter, not a filesystem wrapper. For a GIF
-already stored in addressable memory, the application can pass a descriptor:
+A memory source demonstrates that the abstraction is a byte-source adapter,
+not a filesystem adapter. The application can select this descriptor:
 
 ```c
 typedef struct MemoryGifSource {
@@ -535,14 +625,12 @@ static const MemoryGifSource splash_gif = {
     .size = sizeof(splash_gif_bytes),
 };
 
-GifDecoderConfig config = {
-    .source_identifier = &splash_gif,
-};
+(void)decode_and_display(&splash_gif);
 ```
 
-The target integration can define the shared descriptor in an
-application-owned header and implement the same three operations in
-`gif_porting.c`. This compact example again supports one active decoder:
+The target integration may place the descriptor declaration in an
+application-owned header shared with `gif_porting.c`. This compact port again
+supports one active decoder:
 
 ```c
 #include "gif_porting.h"
@@ -620,31 +708,32 @@ void gif_porting_close(GifPortingHandle handle) {
 }
 ```
 
-Here open initializes sequential stream state, read copies the next bytes, and
-close resets the port-owned state. The decoder workflow above is unchanged.
+Here open initializes a cursor, read copies the next sequential bytes, and
+close resets the port-owned state. The public decoder workflow is identical to
+the generic and FatFs examples.
 
 ## 8. Porting contract reference
 
-The tutorial explains why each concept exists. This section collects the
-formal rules used by every byte-source implementation.
+The tutorial first explains why the abstraction exists. This section collects
+the formal rules for implementing any byte source.
 
-### 8.1 File and component ownership
+### 8.1 Repository file and component ownership
 
-- `include/gif_decoder.h` is the fixed application API. Do not add storage
-  types or calls to it.
+- `include/gif_decoder.h` is the fixed application API. Do not add target
+  byte-source types or calls to it.
 - `src/gif_decoder.c` is the fixed public implementation. Do not add target
-  initialization or storage calls to it.
+  initialization or byte-source calls to it.
 - `src/gif_decoder_core.c` and `src/gif_decoder_core.h` are hidden decoder
   implementation. Applications and ports do not include or call them.
 - `port/gif_porting.h` is the fixed, platform-neutral port contract and
   normally requires no changes.
-- `port/gif_porting.c` is the target implementation. Target storage includes,
-  private handle state, open/read/close calls, and error mapping belong here.
+- `port/gif_porting.c` is the target implementation. Target includes, private
+  handle state, open/read/close calls, and error mapping belong here.
 - `vendor/giflib/` contains upstream-derived parser and LZW code. A platform
   port does not modify it.
 
 The port supplies input bytes only. The caller owns the output framebuffer.
-Display, cache policy, playback timing, user input, storage initialization, and
+Display, cache policy, playback timing, user input, source initialization, and
 hardware control remain outside the porting layer. Memory allocation is also
 outside this three-function contract; current runtime requirements are listed
 in the README.
@@ -652,30 +741,37 @@ in the README.
 ### 8.2 Source identifier rules
 
 - Its meaning is defined by `gif_porting_open()`.
-- The decoder neither inspects nor copies it.
+- The decoder passes it through without inspecting or copying it.
 - It selects one resource for one decoder open operation.
 - The referenced object should remain valid through `gif_decoder_close()` for
   portable application code.
 - A port may document a shorter lifetime only when open copies or consumes all
   required information and never retains the original pointer.
 
-### 8.3 Handle, ownership, and concurrency rules
+### 8.3 Open rules
 
-- A successful open returns a non-`NULL` handle.
-- A failed open leaves the output handle `NULL` and releases partial resources.
+- Validate `out_handle` and clear it before doing any work.
+- Validate and interpret `source_identifier` only inside the port.
+- Acquire or initialize all open-source state before publishing the handle.
+- Return `GIF_PORTING_OK` with a non-`NULL` handle only after complete success.
+- On failure, release partial resources, leave the handle `NULL`, and return
+  `GIF_PORTING_IO_ERROR`.
 - `GIF_PORTING_EOF` is a read result and is never returned from open.
+
+### 8.4 Handle, ownership, and concurrency rules
+
 - After successful open, the decoder owns the handle and pairs it with exactly
   one close.
 - The application does not inspect, reuse, or close the porting handle.
 - A single static source object is valid only for one active decoder and must
   reject another open while busy.
 - Concurrent decoders require independent source position and mutable state,
-  for example separate objects or slots in a port-owned pool.
+  such as separate objects or slots in a port-owned pool.
 - Close releases only resources owned by the port and accepts `NULL` safely.
 
-### 8.4 Read rules
+### 8.5 Read rules
 
-The read signature is:
+The real read signature is:
 
 ```c
 GifPortingStatus gif_porting_read(GifPortingHandle handle,
@@ -695,8 +791,8 @@ the exact number of valid bytes written, never more than `requested_bytes`.
 
 Important consequences:
 
-- `GIF_PORTING_OK` with zero bytes is invalid because it makes no progress.
-  The decoder treats it as an I/O error rather than looping forever.
+- `GIF_PORTING_OK` with zero bytes is invalid. The decoder treats it as an I/O
+  error rather than looping forever.
 - A positive short `GIF_PORTING_OK` read is legal. The decoder asks again for
   the remainder.
 - EOF may accompany final valid bytes. They are consumed before the source is
@@ -708,7 +804,7 @@ Important consequences:
 - Only forward reads are required. Seek, rewind, tell, and file size are not
   part of the contract.
 
-### 8.5 Lifecycle and error mapping
+### 8.6 Lifecycle and error mapping
 
 The normal lifecycle is:
 
@@ -736,32 +832,30 @@ followed by close; the open implementation must clean up its own partial work.
 
 ## 9. Verify the completed port
 
-First perform a simple application walkthrough:
+First perform an application walkthrough:
 
-1. Initialize the underlying filesystem, storage device, and drivers outside
-   the decoder.
-2. Pass a valid pathname to `GifDecoderConfig.source_identifier`.
+1. Initialize the underlying byte-source service outside the decoder.
+2. Obtain a valid resource identifier from the application.
 3. Open the decoder and check the returned canvas dimensions.
 4. Bind a sufficiently large caller-owned framebuffer.
 5. Call `gif_decoder_next_frame()` until `GIF_STATUS_END_OF_STREAM`.
 6. Display each completed framebuffer in application code.
 7. Close the decoder.
-8. Change the runtime pathname and repeat without rebuilding or changing the
-   port.
+8. Select another resource and repeat without rebuilding or changing the port.
 
 Then exercise the boundary cases:
 
 1. A valid single-frame GIF opens, decodes, reaches end of stream, and closes.
 2. A valid multi-frame GIF performs repeated sequential reads correctly.
 3. A truncated GIF reports unexpected EOF rather than hanging.
-4. A forced storage failure reports `GIF_STATUS_IO_ERROR`.
+4. A forced source failure reports `GIF_STATUS_IO_ERROR`.
 5. A malformed GIF closes a successfully opened source exactly once.
 6. Repeated open/decode/close cycles do not leak handles or pool slots.
 7. If concurrency is supported, two decoders do not share mutable source state.
 8. The port never reports `actual_bytes > requested_bytes`.
 9. The port never returns `GIF_PORTING_OK` with zero bytes.
-10. Target storage symbols appear only in `port/gif_porting.c` and the target's
-    own storage stack.
+10. Target byte-source symbols appear only in `port/gif_porting.c` and the
+    target's own source stack.
 
 The repository host tests use a separate memory-backed test port to verify the
 same open/read/close contract, including short reads, EOF, injected errors, and
@@ -778,43 +872,45 @@ Check the port before changing giflib:
 - confirm a short read is not reported as a successful full read;
 - confirm EOF is returned only when no future byte exists;
 - confirm `actual_bytes` is cleared on every call;
-- confirm another subsystem does not reuse the storage buffer or handle.
+- confirm another subsystem does not reuse the source buffer or handle.
 
 ### The decoder hangs in the read bridge
 
 The usual cause is `GIF_PORTING_OK` with `actual_bytes == 0`. Return EOF when
 the source has ended or I/O error when it cannot make progress.
 
-### One file works but opening another active decoder fails
+### One resource works but another active decoder fails to open
 
 A port with one static source object supports only one active decoder. Finish
 and close the first decoder before opening the second, or implement independent
 handle state for concurrency.
 
-### Public code starts including storage headers
+### Public code starts including target byte-source headers
 
 Move those includes and calls back into `port/gif_porting.c`. The public config
-carries only the resource identifier. The application may choose a pathname,
-but it does not open or read the file for the decoder.
+carries only the resource identifier. The application selects a resource but
+does not open or read it for the decoder.
 
 ## 11. Port acceptance checklist
 
 A port is complete when all statements below are true:
 
-- the application can select GIF A, close it, then select GIF B at run time;
-- only `port/gif_porting.c` contains target storage integration;
+- the application can select resource A, close it, then select resource B at
+  run time;
+- only `port/gif_porting.c` contains target byte-source integration;
 - `port/gif_porting.h` remains unchanged and platform-neutral;
 - public and hidden decoder files remain unchanged;
 - open returns a non-`NULL` handle only after complete success;
 - read obeys the byte-count and terminal-status rules;
 - close is `NULL`-safe and releases each successful open exactly once;
 - concurrent decoder behavior is explicitly rejected or correctly supported;
-- no seek or file-size operation is required;
+- no seek or source-size operation is required;
 - the application owns the framebuffer, display, and playback timing;
-- filesystem and storage initialization remain outside the decoder;
+- target source initialization remains outside the decoder;
 - host tests, target compilation, and target runtime checks pass.
 
-With these checks complete, the application needs only `gif_decoder.h` to use
-the decoder. It does not need hidden decoder headers, giflib internals,
-`gif_porting.h`, or a storage header in order to open, decode, display, and
-close a selected GIF.
+With these checks complete, the application needs only `gif_decoder.h` from
+the decoder library. It does not need hidden decoder headers, giflib internals,
+`gif_porting.h`, or the target's low-level byte-source API header. An
+application may still use its own resource descriptor type to select what the
+port should open.
