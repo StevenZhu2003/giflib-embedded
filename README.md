@@ -156,6 +156,16 @@ and the public `gif_decoder.h` header; private giflib headers are not installed.
 - `openbsd-reallocarray.c`: overflow-safe allocation compatibility helper.
 - `tests/`: host-side regression tests.
 - `CMakeLists.txt`: host and cross-compilation build definition.
+- `COMMENTING_STYLE.md`: repository-wide source documentation convention.
+
+## Source documentation
+
+Project-original C code uses a Doxygen-compatible embedded-library style for
+files, functions, callbacks, types, constants, fields, and non-obvious
+implementation decisions. The complete convention is recorded in
+[COMMENTING_STYLE.md](COMMENTING_STYLE.md). Existing comments in giflib-derived
+files intentionally remain in their upstream form and are not restyled merely
+for visual consistency.
 
 ## Upstream changes
 

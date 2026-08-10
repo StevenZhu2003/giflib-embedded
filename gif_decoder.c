@@ -1,4 +1,7 @@
-/*
+/**
+ * @file gif_decoder.c
+ * @brief Public facade and streaming compositor built on the trimmed giflib.
+ *
  * Copyright (c) 2026 Steven Zhu
  * SPDX-License-Identifier: MIT
  */
@@ -11,23 +14,37 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** @brief Terminal state remembered by the byte-source bridge. */
 typedef enum GifSourceTerminal {
-    GIF_SOURCE_ACTIVE = 0,
-    GIF_SOURCE_EOF,
-    GIF_SOURCE_IO_ERROR
+    GIF_SOURCE_ACTIVE = 0, /**< The source may provide more bytes. */
+    GIF_SOURCE_EOF,        /**< The source reported its final byte. */
+    GIF_SOURCE_IO_ERROR    /**< The source reported an unrecoverable error. */
 } GifSourceTerminal;
 
+/** @brief Internal state hidden behind the public opaque decoder handle. */
 struct GifDecoder {
-    GifFileType *gif;
-    GifDecoderConfig source;
-    GifSourceTerminal source_terminal;
-    GifOutputSurface output;
-    GifStatus terminal_status;
-    uint32_t frame_index;
-    uint8_t output_bound;
-    uint8_t stream_ended;
+    GifFileType *gif;                  /**< Private giflib decoder instance. */
+    GifDecoderConfig source;           /**< Copied byte-source configuration. */
+    GifSourceTerminal source_terminal; /**< Remembered source terminal state. */
+    GifOutputSurface output;           /**< Copied caller output descriptor. */
+    GifStatus terminal_status;         /**< Sticky public decode failure. */
+    uint32_t frame_index;              /**< Next zero-based frame index. */
+    uint8_t output_bound;              /**< Non-zero after output binding. */
+    uint8_t stream_ended;              /**< Non-zero after the GIF trailer. */
 };
 
+/**
+ * @brief Adapt the public short-read callback to giflib's exact-read contract.
+ *
+ * The bridge repeatedly calls the application callback while it returns
+ * progress, so a legal short read is not mistaken for EOF. Terminal source
+ * state is retained for public error mapping.
+ *
+ * @param[in] gif          giflib decoder that owns the application context.
+ * @param[out] destination Buffer supplied by giflib.
+ * @param[in] length       Exact byte count requested by giflib.
+ * @return Number of bytes copied, which is less than `length` on failure.
+ */
 static int gif_decoder_read_bridge(GifFileType *gif,
                                    GifByteType *destination,
                                    int length) {
@@ -85,6 +102,13 @@ static int gif_decoder_read_bridge(GifFileType *gif,
     return (int)total;
 }
 
+/**
+ * @brief Translate a giflib error and source state into the public status model.
+ *
+ * @param[in] decoder      Decoder containing the remembered source state.
+ * @param[in] giflib_error Error code produced by giflib.
+ * @return Corresponding public decoder status.
+ */
 static GifStatus gif_decoder_map_error(const GifDecoder *decoder,
                                        int giflib_error) {
     switch (giflib_error) {
@@ -112,11 +136,24 @@ static GifStatus gif_decoder_map_error(const GifDecoder *decoder,
     }
 }
 
+/**
+ * @brief Store and return a sticky decoder failure.
+ *
+ * @param[in,out] decoder Decoder that entered a terminal failure state.
+ * @param[in] status      Public failure to retain.
+ * @return The supplied status value.
+ */
 static GifStatus gif_decoder_fail(GifDecoder *decoder, GifStatus status) {
     decoder->terminal_status = status;
     return status;
 }
 
+/**
+ * @brief Return the packed byte width of a supported pixel format.
+ *
+ * @param[in] pixel_format Pixel layout to query.
+ * @return Bytes per pixel, or zero for an unknown format.
+ */
 static size_t gif_decoder_bytes_per_pixel(GifPixelFormat pixel_format) {
     switch (pixel_format) {
     case GIF_PIXEL_RGB888:
@@ -127,6 +164,16 @@ static size_t gif_decoder_bytes_per_pixel(GifPixelFormat pixel_format) {
     }
 }
 
+/**
+ * @brief Validate output format, stride, palette background, and capacity.
+ *
+ * All size calculations are checked before multiplication or addition so the
+ * same validation is safe on 32-bit embedded targets.
+ *
+ * @param[in] decoder Decoder containing logical-screen information.
+ * @param[in] surface Caller-provided output descriptor.
+ * @return `GIF_STATUS_OK` or a precise validation status.
+ */
 static GifStatus gif_decoder_validate_surface(const GifDecoder *decoder,
                                               const GifOutputSurface *surface) {
     size_t bytes_per_pixel;
@@ -175,6 +222,17 @@ static GifStatus gif_decoder_validate_surface(const GifDecoder *decoder,
     return GIF_STATUS_OK;
 }
 
+/**
+ * @brief Resolve the initial logical-screen background color.
+ *
+ * A stream without a global color table uses deterministic black. A present
+ * global table has already been validated by the surface validator.
+ *
+ * @param[in] decoder Decoder containing the global color table.
+ * @param[out] red    Resolved red component.
+ * @param[out] green  Resolved green component.
+ * @param[out] blue   Resolved blue component.
+ */
 static void gif_decoder_background_color(const GifDecoder *decoder,
                                          uint8_t *red,
                                          uint8_t *green,
@@ -194,6 +252,13 @@ static void gif_decoder_background_color(const GifDecoder *decoder,
     }
 }
 
+/**
+ * @brief Fill the visible canvas with its initial background color.
+ *
+ * Row padding is intentionally left untouched.
+ *
+ * @param[in,out] decoder Decoder with a validated bound output surface.
+ */
 static void gif_decoder_initialize_output(GifDecoder *decoder) {
     uint8_t *pixels = (uint8_t *)decoder->output.pixels;
     uint8_t red;
@@ -222,6 +287,16 @@ static void gif_decoder_initialize_output(GifDecoder *decoder) {
     }
 }
 
+/**
+ * @brief Consume one extension record without accumulating extension storage.
+ *
+ * Stage 3 accepts only Graphic Control Extensions whose behavior is equivalent
+ * to disposal 0/1 without delay, transparency, or user input. Features that
+ * would change visible output are rejected explicitly.
+ *
+ * @param[in,out] decoder Decoder positioned after an extension introducer.
+ * @return Public status for the consumed or rejected extension.
+ */
 static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
     GifByteType *extension = NULL;
     int extension_code = 0;
@@ -258,6 +333,12 @@ static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
     return GIF_STATUS_OK;
 }
 
+/**
+ * @brief Check that the current image rectangle lies inside the canvas.
+ *
+ * @param[in] decoder Decoder containing the current giflib image descriptor.
+ * @return Non-zero when the rectangle is valid, otherwise zero.
+ */
 static int gif_decoder_image_rectangle_is_valid(const GifDecoder *decoder) {
     const GifImageDesc *image = &decoder->gif->Image;
 
@@ -273,6 +354,16 @@ static int gif_decoder_image_rectangle_is_valid(const GifDecoder *decoder) {
     return 1;
 }
 
+/**
+ * @brief Stream one non-interlaced image into the composited output surface.
+ *
+ * One palette-index row is allocated at a time. The function selects the local
+ * color table when present and otherwise uses the global table.
+ *
+ * @param[in,out] decoder Decoder positioned at an image descriptor.
+ * @param[out] out_frame  Receives frame and updated-rectangle metadata.
+ * @return Public decode, format, feature, source, or allocation status.
+ */
 static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
                                           GifFrameInfo *out_frame) {
     const ColorMapObject *color_map;
@@ -356,6 +447,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
     return GIF_STATUS_OK;
 }
 
+/** @copydoc gif_decoder_open */
 GifStatus gif_decoder_open(const GifDecoderConfig *config,
                            GifDecoder **out_decoder,
                            GifStreamInfo *out_stream) {
@@ -410,6 +502,7 @@ GifStatus gif_decoder_open(const GifDecoderConfig *config,
     return GIF_STATUS_OK;
 }
 
+/** @copydoc gif_decoder_bind_output */
 GifStatus gif_decoder_bind_output(GifDecoder *decoder,
                                   const GifOutputSurface *surface) {
     GifStatus status;
@@ -433,6 +526,7 @@ GifStatus gif_decoder_bind_output(GifDecoder *decoder,
     return GIF_STATUS_OK;
 }
 
+/** @copydoc gif_decoder_next_frame */
 GifStatus gif_decoder_next_frame(GifDecoder *decoder,
                                  GifFrameInfo *out_frame) {
     GifRecordType record_type;
@@ -483,6 +577,7 @@ GifStatus gif_decoder_next_frame(GifDecoder *decoder,
     }
 }
 
+/** @copydoc gif_decoder_close */
 void gif_decoder_close(GifDecoder *decoder) {
     if (decoder == NULL) {
         return;
@@ -494,6 +589,7 @@ void gif_decoder_close(GifDecoder *decoder) {
     free(decoder);
 }
 
+/** @copydoc gif_status_string */
 const char *gif_status_string(GifStatus status) {
     switch (status) {
     case GIF_STATUS_OK:

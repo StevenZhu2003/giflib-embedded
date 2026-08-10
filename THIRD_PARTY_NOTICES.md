@@ -68,6 +68,10 @@ correctness work:
   a signed/unsigned compiler warning.
 - The malformed SPDX copyright field in `gif_err.c` was corrected without
   changing the credited author.
+- Existing comments in giflib-derived code are intentionally retained in their
+  upstream form. The project's Doxygen-compatible style applies to
+  project-original files and to new comments that specifically document port
+  changes; it is not used to rewrite upstream commentary for appearance.
 - The retained `openbsd-reallocarray.c` variant removes `errno` and
   `sys/types.h` dependencies for the embedded core. It still performs the
   upstream overflow check and returns `NULL` for overflow or zero-size input,

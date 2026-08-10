@@ -1,28 +1,41 @@
+/**
+ * @file test_decoder.c
+ * @brief Host-side tests for the platform-neutral GIF decoder facade.
+ */
+
 #include "gif_decoder.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
+/** @brief In-memory byte stream used to exercise the input callback contract. */
 typedef struct MemorySource {
-    const uint8_t *data;
-    size_t size;
-    size_t offset;
-    size_t max_chunk;
-    size_t error_offset;
-    size_t read_calls;
-    bool inject_error;
-    bool eof_with_final_bytes;
+    const uint8_t *data;       /**< Immutable source bytes. */
+    size_t size;               /**< Total number of source bytes. */
+    size_t offset;             /**< Offset of the next unread byte. */
+    size_t max_chunk;          /**< Maximum bytes returned per callback. */
+    size_t error_offset;       /**< Offset at which an I/O error is raised. */
+    size_t read_calls;         /**< Number of callback invocations. */
+    bool inject_error;         /**< Whether fault injection is enabled. */
+    bool eof_with_final_bytes; /**< Whether the last data also reports EOF. */
 } MemorySource;
 
+/** @brief Number of failed checks observed by this test executable. */
 static int failures;
 
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
+/** @brief Return the number of allocations not yet released. */
 size_t giflib_test_outstanding_allocations(void);
+
+/** @brief Fail allocation calls after the requested successful-call count. */
 void giflib_test_fail_allocation_after(size_t successful_allocations);
+
+/** @brief Disable allocator fault injection. */
 void giflib_test_disable_allocation_failure(void);
 #endif
 
+/** @brief Record a failed test condition without aborting the test process. */
 #define CHECK(condition)                                                       \
     do {                                                                       \
         if (!(condition)) {                                                    \
@@ -32,6 +45,7 @@ void giflib_test_disable_allocation_failure(void);
         }                                                                      \
     } while (0)
 
+/** @brief Minimal screen descriptor and global palette used by open tests. */
 static const uint8_t gif_header_with_palette[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x02, 0x00, 0x03, 0x00,
@@ -40,6 +54,7 @@ static const uint8_t gif_header_with_palette[] = {
     0xff, 0xff, 0xff,
 };
 
+/** @brief Complete two-pixel GIF using its global color table. */
 static const uint8_t gif_two_pixel_global[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x02, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
@@ -50,6 +65,7 @@ static const uint8_t gif_two_pixel_global[] = {
     0x3b,
 };
 
+/** @brief Complete two-row GIF used to verify destination stride handling. */
 static const uint8_t gif_two_rows_global[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x01, 0x00, 0x02, 0x00, 0x80, 0x00, 0x00,
@@ -60,6 +76,7 @@ static const uint8_t gif_two_rows_global[] = {
     0x3b,
 };
 
+/** @brief Complete two-pixel GIF using an image-local color table. */
 static const uint8_t gif_two_pixel_local[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -70,6 +87,7 @@ static const uint8_t gif_two_pixel_local[] = {
     0x3b,
 };
 
+/** @brief GIF whose image rectangle covers only part of the logical canvas. */
 static const uint8_t gif_partial_frame[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x03, 0x00, 0x01, 0x00, 0x80, 0x01, 0x00,
@@ -80,6 +98,7 @@ static const uint8_t gif_partial_frame[] = {
     0x3b,
 };
 
+/** @brief Two-frame GIF using the supported keep-in-place disposal method. */
 static const uint8_t gif_two_frames_disposal_one[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x02, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
@@ -94,6 +113,7 @@ static const uint8_t gif_two_frames_disposal_one[] = {
     0x3b,
 };
 
+/** @brief Interlaced GIF used to verify unsupported-feature reporting. */
 static const uint8_t gif_interlaced[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x02, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
@@ -104,6 +124,7 @@ static const uint8_t gif_interlaced[] = {
     0x3b,
 };
 
+/** @brief Transparent GIF used to verify unsupported-feature reporting. */
 static const uint8_t gif_with_transparency[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
@@ -115,6 +136,7 @@ static const uint8_t gif_with_transparency[] = {
     0x3b,
 };
 
+/** @brief GIF using restore-to-background disposal for rejection testing. */
 static const uint8_t gif_with_disposal_two[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
@@ -126,6 +148,13 @@ static const uint8_t gif_with_disposal_two[] = {
     0x3b,
 };
 
+/**
+ * @brief Initialize an in-memory input source with default read behavior.
+ *
+ * @param[out] source Source object to initialize.
+ * @param[in] data    Byte array exposed by the source.
+ * @param[in] size    Number of valid bytes in @p data.
+ */
 static void memory_source_init(MemorySource *source,
                                const uint8_t *data,
                                size_t size) {
@@ -135,6 +164,15 @@ static void memory_source_init(MemorySource *source,
     source->max_chunk = size;
 }
 
+/**
+ * @brief Implement the decoder read callback over an in-memory byte array.
+ *
+ * @param[in,out] io_context      Pointer to a MemorySource object.
+ * @param[out] destination        Buffer that receives source bytes.
+ * @param[in] requested_bytes     Maximum number of bytes to return.
+ * @param[out] actual_bytes       Number of bytes actually returned.
+ * @return Callback status describing data, EOF, or an injected I/O error.
+ */
 static GifReadStatus memory_source_read(void *io_context,
                                         uint8_t *destination,
                                         size_t requested_bytes,
@@ -188,6 +226,14 @@ static GifReadStatus memory_source_read(void *io_context,
     return GIF_READ_OK;
 }
 
+/**
+ * @brief Open a decoder whose input is supplied by a MemorySource object.
+ *
+ * @param[in,out] source Source object passed to the read callback.
+ * @param[out] decoder   Receives the opened decoder on success.
+ * @param[out] stream    Receives logical-screen metadata on success.
+ * @return Decoder status returned by gif_decoder_open().
+ */
 static GifStatus open_source(MemorySource *source,
                              GifDecoder **decoder,
                              GifStreamInfo *stream) {
@@ -198,6 +244,16 @@ static GifStatus open_source(MemorySource *source,
     return gif_decoder_open(&config, decoder, stream);
 }
 
+/**
+ * @brief Construct and bind an output surface for a facade test.
+ *
+ * @param[in,out] decoder Decoder instance to configure.
+ * @param[out] pixels     Caller-owned destination storage.
+ * @param[in] capacity_bytes Size of @p pixels in bytes.
+ * @param[in] stride_bytes   Distance between destination rows in bytes.
+ * @param[in] pixel_format   Requested destination byte order.
+ * @return Decoder status returned by gif_decoder_bind_output().
+ */
 static GifStatus bind_output(GifDecoder *decoder,
                              void *pixels,
                              size_t capacity_bytes,
@@ -212,6 +268,7 @@ static GifStatus bind_output(GifDecoder *decoder,
     return gif_decoder_bind_output(decoder, &surface);
 }
 
+/** @brief Verify open-time metadata obtained from a memory-backed source. */
 static void test_open_memory_source(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -230,6 +287,7 @@ static void test_open_memory_source(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Verify that successful short reads are accumulated correctly. */
 static void test_legal_short_reads(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -247,6 +305,7 @@ static void test_legal_short_reads(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Accept a callback that returns final bytes together with EOF. */
 static void test_final_bytes_with_eof(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -262,6 +321,7 @@ static void test_final_bytes_with_eof(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Map a truncated logical-screen descriptor to unexpected EOF. */
 static void test_unexpected_eof(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -274,6 +334,7 @@ static void test_unexpected_eof(void) {
     CHECK(decoder == NULL);
 }
 
+/** @brief Preserve an input callback I/O error during decoder open. */
 static void test_injected_io_error(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -288,7 +349,9 @@ static void test_injected_io_error(void) {
     CHECK(decoder == NULL);
 }
 
+/** @brief Reject an input whose GIF signature is malformed. */
 static void test_malformed_header(void) {
+    /** @brief Non-GIF header with otherwise plausible dimensions. */
     static const uint8_t malformed[] = {
         'N', 'O', 'T', '8', '9', 'a',
         0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -304,6 +367,7 @@ static void test_malformed_header(void) {
     CHECK(decoder == NULL);
 }
 
+/** @brief Reject invalid facade arguments and tolerate closing NULL. */
 static void test_invalid_arguments(void) {
     GifDecoderConfig config;
     GifDecoder *decoder = NULL;
@@ -319,6 +383,7 @@ static void test_invalid_arguments(void) {
                  "input/output error") == 0);
 }
 
+/** @brief Map a giflib allocation failure and verify complete cleanup. */
 static void test_oom_mapping(void) {
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
     MemorySource source;
@@ -342,6 +407,7 @@ static void test_oom_mapping(void) {
 #endif
 }
 
+/** @brief Repeatedly open and close a stream without leaking allocations. */
 static void test_repeated_open_close(void) {
     int iteration;
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
@@ -367,6 +433,7 @@ static void test_repeated_open_close(void) {
 #endif
 }
 
+/** @brief Validate output pointers, formats, strides, sizes, and state. */
 static void test_output_surface_validation(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -415,6 +482,7 @@ static void test_output_surface_validation(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Decode RGB888 pixels while preserving destination padding. */
 static void test_rgb888_and_stride(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -452,6 +520,7 @@ static void test_rgb888_and_stride(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Decode a local color table into BGR888 byte order. */
 static void test_bgr888_and_local_palette(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -474,6 +543,7 @@ static void test_bgr888_and_local_palette(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Advance rows using the caller-provided output stride. */
 static void test_stride_row_advance(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -498,6 +568,7 @@ static void test_stride_row_advance(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Initialize uncovered canvas pixels from the GIF background color. */
 static void test_partial_frame_background(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -522,6 +593,7 @@ static void test_partial_frame_background(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Decode successive frames into one persistent output surface. */
 static void test_two_streaming_frames(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -552,6 +624,12 @@ static void test_two_streaming_frames(void) {
     gif_decoder_close(decoder);
 }
 
+/**
+ * @brief Verify stable rejection of one syntactically valid unsupported GIF.
+ *
+ * @param[in] data Complete encoded GIF byte array.
+ * @param[in] size Number of valid bytes in @p data.
+ */
 static void check_unsupported_gif(const uint8_t *data, size_t size) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -573,6 +651,7 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Reject interlace, transparency, and unsupported disposal modes. */
 static void test_unsupported_features(void) {
     check_unsupported_gif(gif_interlaced, sizeof(gif_interlaced));
     check_unsupported_gif(gif_with_transparency,
@@ -581,6 +660,7 @@ static void test_unsupported_features(void) {
                           sizeof(gif_with_disposal_two));
 }
 
+/** @brief Distinguish callback I/O failure from EOF during frame decoding. */
 static void test_frame_read_failures(void) {
     MemorySource source;
     GifDecoder *decoder = NULL;
@@ -612,6 +692,7 @@ static void test_frame_read_failures(void) {
     }
 }
 
+/** @brief Map invalid LZW parameters to an invalid-format status. */
 static void test_malformed_image_data(void) {
     uint8_t malformed[sizeof(gif_two_pixel_global)];
     MemorySource source;
@@ -634,6 +715,7 @@ static void test_malformed_image_data(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Map and clean up an allocation failure during frame decoding. */
 static void test_frame_oom_mapping(void) {
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
     MemorySource source;
@@ -661,6 +743,7 @@ static void test_frame_oom_mapping(void) {
 #endif
 }
 
+/** @brief Repeatedly decode a complete stream without leaking allocations. */
 static void test_repeated_streaming_decode(void) {
     int iteration;
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
@@ -696,6 +779,11 @@ static void test_repeated_streaming_decode(void) {
 #endif
 }
 
+/**
+ * @brief Run all facade tests and report their aggregate result.
+ *
+ * @return Zero when every check passes, otherwise one.
+ */
 int main(void) {
     test_open_memory_source();
     test_legal_short_reads();

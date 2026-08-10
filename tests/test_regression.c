@@ -1,20 +1,29 @@
+/**
+ * @file test_regression.c
+ * @brief Low-level regression tests for the retained giflib streaming API.
+ */
+
 #include "gif_lib.h"
 
 #include <stdio.h>
 #include <string.h>
 
+/** @brief In-memory byte stream used by low-level giflib tests. */
 typedef struct MemorySource {
-	const GifByteType *data;
-	size_t size;
-	size_t offset;
+	const GifByteType *data; /**< Immutable GIF bytes. */
+	size_t size;             /**< Total byte count. */
+	size_t offset;           /**< Next unread byte offset. */
 } MemorySource;
 
+/** @brief Number of failed checks in the current test process. */
 static int failures;
 
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
+/** @brief Return the active allocation count from the test wrapper. */
 size_t giflib_test_outstanding_allocations(void);
 #endif
 
+/** @brief Record a failed test condition without aborting the process. */
 #define CHECK(condition)                                                       \
 	do {                                                                     \
 		if (!(condition)) {                                                \
@@ -24,6 +33,14 @@ size_t giflib_test_outstanding_allocations(void);
 		}                                                                \
 	} while (0)
 
+/**
+ * @brief Supply bytes from `MemorySource` using giflib's low-level callback.
+ *
+ * @param[in] gif          giflib object containing the source in `UserData`.
+ * @param[out] destination Buffer that receives source bytes.
+ * @param[in] length       Maximum number of bytes requested.
+ * @return Number of bytes copied.
+ */
 static int memory_read(GifFileType *gif, GifByteType *destination, int length) {
 	MemorySource *source = (MemorySource *)gif->UserData;
 	size_t available;
@@ -47,6 +64,15 @@ static int memory_read(GifFileType *gif, GifByteType *destination, int length) {
 	return (int)requested;
 }
 
+/**
+ * @brief Initialize a memory source and open it through `DGifOpen()`.
+ *
+ * @param[out] source Source state initialized by the function.
+ * @param[in] data    GIF byte array.
+ * @param[in] size    Number of bytes in `data`.
+ * @param[out] error  Receives the giflib open error.
+ * @return Open giflib handle or `NULL`.
+ */
 static GifFileType *open_memory(MemorySource *source,
 	                            const GifByteType *data,
 	                            size_t size,
@@ -57,7 +83,9 @@ static GifFileType *open_memory(MemorySource *source,
 	return DGifOpen(source, memory_read, error);
 }
 
+/** @brief Decode a one-pixel GIF through the non-accumulating scanline API. */
 static void test_decode_one_pixel(void) {
+	/* Complete 1x1 GIF89a fixture with a two-entry global color table. */
 	static const GifByteType gif_data[] = {
 	    'G', 'I', 'F', '8', '9', 'a',
 	    0x01, 0x00, 0x01, 0x00,
@@ -104,7 +132,9 @@ static void test_decode_one_pixel(void) {
 	CHECK(error == D_GIF_SUCCEEDED);
 }
 
+/** @brief Verify that a non-GIF signature maps to the expected error. */
 static void test_bad_signature(void) {
+	/* Six-byte invalid signature fixture. */
 	static const GifByteType not_gif[] = {
 	    'N', 'O', 'T', '8', '9', 'a',
 	};
@@ -117,7 +147,9 @@ static void test_bad_signature(void) {
 	CHECK(error == D_GIF_ERR_NOT_GIF_FILE);
 }
 
+/** @brief Verify preservation of a logical-screen read failure. */
 static void test_screen_descriptor_error_is_preserved(void) {
+	/* Valid signature followed by a truncated logical-screen descriptor. */
 	static const GifByteType truncated[] = {
 	    'G', 'I', 'F', '8', '9', 'a',
 	    0x01,
@@ -131,7 +163,9 @@ static void test_screen_descriptor_error_is_preserved(void) {
 	CHECK(error == D_GIF_ERR_READ_FAILED);
 }
 
+/** @brief Verify safe handling of the maximum 16-bit image dimensions. */
 static void test_maximum_image_dimensions_header(void) {
+	/* Header-only image descriptor with width and height set to 65535. */
 	static const GifByteType gif_data[] = {
 	    'G', 'I', 'F', '8', '9', 'a',
 	    0x01, 0x00, 0x01, 0x00,
@@ -161,6 +195,7 @@ static void test_maximum_image_dimensions_header(void) {
 	CHECK(DGifCloseFile(gif, &error) == GIF_OK);
 }
 
+/** @brief Repeat low-level decode and verify allocator balance. */
 static void test_repeated_open_decode_close(void) {
 	int iteration;
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
@@ -179,6 +214,11 @@ static void test_repeated_open_decode_close(void) {
 #endif
 }
 
+/**
+ * @brief Run the low-level giflib regression suite.
+ *
+ * @return Zero when all checks pass, otherwise one.
+ */
 int main(void) {
 	test_decode_one_pixel();
 	test_bad_signature();

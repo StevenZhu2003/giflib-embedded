@@ -1,7 +1,9 @@
+# Build definition for the platform-neutral decoder library and its host tests.
 cmake_minimum_required(VERSION 3.16)
 
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
+# Decoder facade plus the retained giflib parser and LZW implementation.
 add_library(giflib_embedded STATIC
     gif_decoder.c
     dgif_lib.c
@@ -11,6 +13,7 @@ add_library(giflib_embedded STATIC
 )
 add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
 
+# Publish only the facade include directory; giflib internals remain private.
 target_include_directories(giflib_embedded
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -25,6 +28,7 @@ set_target_properties(giflib_embedded PROPERTIES
     C_EXTENSIONS NO
 )
 
+# Keep warning policy equivalent across the supported compiler families.
 if(MSVC)
     target_compile_options(giflib_embedded PRIVATE /W4)
 else()
@@ -35,6 +39,7 @@ else()
     )
 endif()
 
+# Install the static library and the sole application-facing header.
 install(TARGETS giflib_embedded
     ARCHIVE DESTINATION lib
 )
@@ -47,6 +52,7 @@ option(GIFLIB_BUILD_TESTS "Build host-side regression tests" ON)
 if(GIFLIB_BUILD_TESTS)
     enable_testing()
 
+    # Apply the common language, warning, and allocation-tracking test setup.
     function(giflib_configure_test target)
         set_target_properties(${target} PROPERTIES
             C_STANDARD 99
@@ -80,6 +86,7 @@ if(GIFLIB_BUILD_TESTS)
         endif()
     endfunction()
 
+    # Exercise retained low-level giflib behavior and portability fixes.
     add_executable(giflib_regression_tests
         tests/test_regression.c
     )
@@ -89,12 +96,14 @@ if(GIFLIB_BUILD_TESTS)
     )
     giflib_configure_test(giflib_regression_tests)
 
+    # Exercise the public facade and streaming-compositor contract.
     add_executable(gif_decoder_facade_tests
         tests/test_decoder.c
     )
     target_link_libraries(gif_decoder_facade_tests PRIVATE giflib_embedded)
     giflib_configure_test(gif_decoder_facade_tests)
 
+    # Compile each boundary header without relying on accidental prior includes.
     add_library(giflib_private_header_check OBJECT
         tests/private_header_self_contained.c
     )
@@ -119,6 +128,7 @@ if(GIFLIB_BUILD_TESTS)
         C_EXTENSIONS NO
     )
 
+    # Register only executable host tests; object targets are compile checks.
     add_test(NAME giflib_regression COMMAND giflib_regression_tests)
     add_test(NAME gif_decoder_facade COMMAND gif_decoder_facade_tests)
 endif()
