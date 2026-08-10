@@ -1,9 +1,15 @@
-# giflib-embedded
+# Portable GIF Decoder for Embedded Systems Based on giflib
 
 `giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded
 systems. It retains giflib's mature parser and LZW decoder while placing a
 small portability boundary between the decoder and platform-specific storage,
 display, timing, and operating-system services.
+
+> **Upstream attribution:** This project incorporates and modifies a
+> substantial amount of source code from giflib. The original authors retain
+> copyright in that code. See
+> [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact file boundary,
+> upstream changes, omitted components, and project-original files.
 
 The project is derived from giflib 6.1.3 and is currently under active
 development. The low-level `gif_lib.h` interface is retained internally during
@@ -50,13 +56,15 @@ Completed:
 - preservation of the underlying `DGifOpen()` error;
 - an opaque public decoder facade;
 - a short-read-aware byte-source callback with distinct EOF and I/O errors;
-- platform-independent stream information and status mapping.
+- platform-independent stream information and status mapping;
+- caller-owned output surfaces with checked capacity and arbitrary stride;
+- streaming non-interlaced RGB888 and BGR888 frame composition;
+- global and local color tables, partial image rectangles, and disposal 0/1.
 
-The next stage will add caller-owned RGB888/BGR888 output surfaces and basic
-streaming composition. Later stages will add animation metadata, transparency,
-disposal modes, RGBA output, and interlace handling. Allocator abstraction and
-platform adapters are intentionally deferred until the streaming architecture
-is stable.
+The next stage will add Graphic Control Extension state, transparency, and
+animation timing metadata. Later stages will add disposal modes 2/3, RGBA
+output, and interlace handling. Allocator abstraction and platform adapters are
+intentionally deferred until the streaming architecture is stable.
 
 ## Public API
 
@@ -75,7 +83,21 @@ GifStreamInfo stream;
 
 GifStatus status = gif_decoder_open(&config, &decoder, &stream);
 if (status == GIF_STATUS_OK) {
-    /* stream.canvas_width and stream.canvas_height are now available. */
+    /* Allocate a framebuffer using the returned canvas dimensions. */
+    GifOutputSurface surface = {
+        .pixels = framebuffer,
+        .capacity_bytes = framebuffer_size,
+        .stride_bytes = framebuffer_stride,
+        .pixel_format = GIF_PIXEL_RGB888,
+    };
+    GifFrameInfo frame;
+
+    if (gif_decoder_bind_output(decoder, &surface) == GIF_STATUS_OK) {
+        while ((status = gif_decoder_next_frame(decoder, &frame)) ==
+               GIF_STATUS_OK) {
+            display_framebuffer(surface.pixels);
+        }
+    }
     gif_decoder_close(decoder);
 }
 ```
@@ -85,6 +107,11 @@ The read callback reports both a `GifReadStatus` and the actual byte count.
 reading until giflib's request is satisfied. `GIF_READ_EOF` and
 `GIF_READ_IO_ERROR` remain distinct and are mapped to public decoder statuses.
 The callback does not receive or expose any giflib type.
+
+At the current stage, interlaced images, transparency, non-zero frame delays,
+user-input GCEs, disposal modes 2/3, and Plain Text Extensions return
+`GIF_STATUS_UNSUPPORTED_FEATURE`. They are not silently decoded with incorrect
+semantics.
 
 ## Dependencies
 

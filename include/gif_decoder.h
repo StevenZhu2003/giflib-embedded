@@ -25,7 +25,8 @@ typedef enum GifStatus {
     GIF_STATUS_INVALID_FORMAT = 6,
     GIF_STATUS_UNSUPPORTED_FEATURE = 7,
     GIF_STATUS_BUFFER_TOO_SMALL = 8,
-    GIF_STATUS_INTERNAL_ERROR = 9
+    GIF_STATUS_INTERNAL_ERROR = 9,
+    GIF_STATUS_INVALID_STATE = 10
 } GifStatus;
 
 typedef enum GifReadStatus {
@@ -61,9 +62,45 @@ typedef struct GifStreamInfo {
     uint8_t has_global_color_table;
 } GifStreamInfo;
 
+typedef enum GifPixelFormat {
+    GIF_PIXEL_RGB888 = 0,
+    GIF_PIXEL_BGR888 = 1
+} GifPixelFormat;
+
+typedef struct GifOutputSurface {
+    /* Pixel storage remains owned by the caller and must stay valid while the
+     * decoder is bound to it. The surface descriptor itself is copied. */
+    void *pixels;
+    /* Accessible storage starting at pixels. It must cover at least
+     * (canvas_height - 1) * stride_bytes + packed_canvas_row_bytes. */
+    size_t capacity_bytes;
+    /* Byte distance between consecutive canvas rows; may exceed packed size. */
+    size_t stride_bytes;
+    GifPixelFormat pixel_format;
+} GifOutputSurface;
+
+typedef struct GifFrameInfo {
+    uint32_t frame_index;
+    uint32_t image_left;
+    uint32_t image_top;
+    uint32_t image_width;
+    uint32_t image_height;
+    uint32_t updated_left;
+    uint32_t updated_top;
+    uint32_t updated_width;
+    uint32_t updated_height;
+} GifFrameInfo;
+
 GifStatus gif_decoder_open(const GifDecoderConfig *config,
                            GifDecoder **out_decoder,
                            GifStreamInfo *out_stream);
+
+GifStatus gif_decoder_bind_output(GifDecoder *decoder,
+                                  const GifOutputSurface *surface);
+
+/* Produces the next fully composited canvas state in the bound surface. */
+GifStatus gif_decoder_next_frame(GifDecoder *decoder,
+                                 GifFrameInfo *out_frame);
 
 void gif_decoder_close(GifDecoder *decoder);
 
