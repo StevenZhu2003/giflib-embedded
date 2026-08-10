@@ -109,12 +109,16 @@ giflib:
   `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and
   `tests/test_regression.c` are this project's portability and regression
   tests. Their small in-memory GIF byte fixtures were created for these tests.
-- `examples/memory_animation/main.c`,
-  `examples/memory_animation/gif_porting.c`,
-  `examples/memory_animation/memory_source.h`, and
-  `examples/memory_animation/README.md` form a project-original, hosted-C
-  complete usage example. Its small GIF byte fixture was created for this
-  project and is not copied from an external animation or media asset.
+- `examples/embedded_player/main.c`, `gif_porting.c`, `memory_source.h`,
+  `example_platform.h`, `hosted_platform.c`, and `README.md` form a
+  project-original embedded player reference application. The hosted backend
+  uses only the C standard library and does not incorporate a platform SDK or
+  display-library source.
+- `examples/embedded_player/assets/device_boot.gif` is a project-original
+  128 x 64 device-status animation created for this repository; it is not
+  copied or adapted from external media. `demo_animation.c` and
+  `demo_animation.h` are its mechanically generated embedded C
+  representation and declarations.
 - `README.md`, `docs/PORTING_GUIDE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`,
   `LICENSE`, and this notice were written or selected for this repository.
 
@@ -129,8 +133,8 @@ The Porting Guide refers to the FatFs API and contains project-original adapter
 code showing how `gif_porting_open()`, `gif_porting_read()`, and
 `gif_porting_close()` can call `f_open()`, `f_read()`, and `f_close()`. This
 repository does not contain a FatFs source file, header, binary, sample project,
-or copied FatFs implementation code. Its library, tests, and complete memory
-animation example do not link to FatFs.
+or copied FatFs implementation code. Its library, tests, and embedded player
+example do not link to FatFs.
 
 FatFs is therefore an optional external integration rather than a bundled
 third-party component of this repository. Users who supply FatFs in a parent

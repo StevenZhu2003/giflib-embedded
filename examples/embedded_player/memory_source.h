@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/** @brief Immutable GIF bytes selected by the example application. */
+/** @brief Immutable encoded GIF resource selected by the application. */
 typedef struct GifMemorySource {
     const uint8_t *data; /**< First byte of the encoded GIF stream. */
     size_t size;         /**< Number of accessible bytes at @p data. */

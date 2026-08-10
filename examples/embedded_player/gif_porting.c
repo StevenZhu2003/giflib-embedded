@@ -1,10 +1,9 @@
 /**
  * @file gif_porting.c
- * @brief Memory-backed port used by the complete animation example.
+ * @brief Memory-backed byte-source port for the embedded player example.
  *
  * This implementation supports one active decoder and performs only forward
- * sequential reads. It is project-original example code and does not depend
- * on a filesystem or platform SDK.
+ * sequential reads. It is independent of filesystems and platform SDKs.
  *
  * Copyright (c) 2026 Steven Zhu
  * SPDX-License-Identifier: MIT

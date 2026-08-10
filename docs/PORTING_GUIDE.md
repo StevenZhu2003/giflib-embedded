@@ -108,8 +108,10 @@ The output capacity and stride must cover the dimensions returned in
 a pool, or another caller-owned allocation policy.
 
 The repository's
-[complete memory animation example](../examples/memory_animation/README.md)
-implements this workflow without a filesystem or platform SDK.
+[embedded GIF player example](../examples/embedded_player/README.md) implements
+this workflow as a complete application with a real animation resource,
+caller-owned framebuffer, display boundary, and application timing policy. It
+requires neither a filesystem nor a platform SDK.
 
 ## 2. Follow the porting boundary from the public API
 

@@ -124,11 +124,13 @@ silently decoded with incorrect semantics.
 
 ## Complete example
 
-The buildable [memory animation example](examples/memory_animation/README.md)
-shows the complete source-selection, open, output binding, multi-frame decode,
-display, application delay, end-of-stream, and close workflow. Its byte source,
-RGB888 framebuffer, animation data, display function, and delay policy are all
-included, so no platform SDK or filesystem is required.
+The buildable [embedded GIF player example](examples/embedded_player/README.md)
+is structured as a small real application rather than a decoder test. It plays
+a project-original 128 x 64 animation from read-only memory, reuses a 24 KiB
+RGB888 framebuffer, hands every completed canvas to a display boundary, and
+applies frame delays in application code. The hosted backend writes standard
+PPM frame captures; an embedded project replaces only that display/time backend
+with its own implementation. No platform SDK or filesystem is required.
 
 ## Dependencies
 
@@ -176,6 +178,10 @@ cmake -S . -B build/example \
   -DGIFLIB_BUILD_EXAMPLES=ON
 cmake --build build/example
 ```
+
+Run `gif_embedded_player_example` from the directory where the hosted display
+backend should write its `gif_frame_*.ppm` captures. See the example README for
+the application structure and target-integration steps.
 
 The repository's `port/gif_porting.c` is a compile-safe, unconfigured template.
 Implement its open/read/close bodies for the target before decoding. No other

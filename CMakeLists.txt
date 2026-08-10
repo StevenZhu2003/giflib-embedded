@@ -181,28 +181,30 @@ if(GIFLIB_BUILD_TESTS)
 endif()
 
 if(GIFLIB_BUILD_EXAMPLES)
-    # Complete memory-backed example with its own port implementation.
-    add_executable(gif_memory_animation_example
-        examples/memory_animation/main.c
-        examples/memory_animation/gif_porting.c
+    # Embedded player reference with a real memory-backed animation resource.
+    add_executable(gif_embedded_player_example
+        examples/embedded_player/main.c
+        examples/embedded_player/demo_animation.c
+        examples/embedded_player/gif_porting.c
+        examples/embedded_player/hosted_platform.c
     )
-    target_link_libraries(gif_memory_animation_example PRIVATE
+    target_link_libraries(gif_embedded_player_example PRIVATE
         giflib_embedded
     )
-    target_include_directories(gif_memory_animation_example PRIVATE
+    target_include_directories(gif_embedded_player_example PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
-        "${CMAKE_CURRENT_SOURCE_DIR}/examples/memory_animation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/examples/embedded_player"
     )
-    set_target_properties(gif_memory_animation_example PROPERTIES
+    set_target_properties(gif_embedded_player_example PROPERTIES
         C_STANDARD 99
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS NO
     )
 
     if(MSVC)
-        target_compile_options(gif_memory_animation_example PRIVATE /W4)
+        target_compile_options(gif_embedded_player_example PRIVATE /W4)
     else()
-        target_compile_options(gif_memory_animation_example PRIVATE
+        target_compile_options(gif_embedded_player_example PRIVATE
             -Wall
             -Wextra
             -Wpedantic
@@ -210,7 +212,7 @@ if(GIFLIB_BUILD_EXAMPLES)
     endif()
 
     if(GIFLIB_BUILD_TESTS)
-        add_test(NAME gif_memory_animation_example
-                 COMMAND gif_memory_animation_example)
+        add_test(NAME gif_embedded_player_example
+                 COMMAND gif_embedded_player_example)
     endif()
 endif()

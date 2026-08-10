@@ -13,6 +13,7 @@ rules.ninja
 .ninja_deps
 .ninja_log
 compile_commands.json
+gif_frame_*.ppm
 
 # Compiled output
 *.a
