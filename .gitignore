@@ -1,0 +1,59 @@
+# CMake build trees and generated metadata
+/build/
+/build-*/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+cmake_install.cmake
+install_manifest.txt
+build.ninja
+rules.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+
+# Compiled output
+*.a
+*.bin
+*.dll
+*.elf
+*.exe
+*.hex
+*.lib
+*.map
+*.o
+*.obj
+*.so
+*.su
+
+# Coverage, profiling, and diagnostics
+*.gcda
+*.gcno
+*.gcov
+*.log
+*.profraw
+*.profdata
+core
+core.*
+
+# Vitis, Vivado, and Eclipse workspace state
+/.metadata/
+/.Xil/
+/.settings/
+/.vscode/
+/.idea/
+Debug/
+Release/
+_ide/
+*.launch
+*.xpr
+
+# Editor and operating-system files
+*~
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
