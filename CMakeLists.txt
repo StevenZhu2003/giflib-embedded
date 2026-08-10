@@ -3,14 +3,19 @@ cmake_minimum_required(VERSION 3.16)
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
 add_library(giflib_embedded STATIC
+    gif_decoder.c
     dgif_lib.c
     gifalloc.c
     gif_err.c
     openbsd-reallocarray.c
 )
+add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
 
 target_include_directories(giflib_embedded
     PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<INSTALL_INTERFACE:include>"
+    PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
@@ -30,35 +35,65 @@ else()
     )
 endif()
 
+install(TARGETS giflib_embedded
+    ARCHIVE DESTINATION lib
+)
+install(FILES include/gif_decoder.h
+    DESTINATION include
+)
+
 option(GIFLIB_BUILD_TESTS "Build host-side regression tests" ON)
 
 if(GIFLIB_BUILD_TESTS)
     enable_testing()
 
+    function(giflib_configure_test target)
+        set_target_properties(${target} PROPERTIES
+            C_STANDARD 99
+            C_STANDARD_REQUIRED YES
+            C_EXTENSIONS NO
+        )
+
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /W4)
+        else()
+            target_compile_options(${target} PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+            )
+        endif()
+
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT CMAKE_CROSSCOMPILING)
+            target_sources(${target} PRIVATE
+                tests/test_allocator.c
+            )
+            target_compile_definitions(${target} PRIVATE
+                GIFLIB_TEST_ALLOC_TRACKING=1
+            )
+            target_link_options(${target} PRIVATE
+                "-Wl,--wrap=malloc"
+                "-Wl,--wrap=calloc"
+                "-Wl,--wrap=realloc"
+                "-Wl,--wrap=free"
+            )
+        endif()
+    endfunction()
+
     add_executable(giflib_regression_tests
         tests/test_regression.c
     )
     target_link_libraries(giflib_regression_tests PRIVATE giflib_embedded)
-    set_target_properties(giflib_regression_tests PROPERTIES
-        C_STANDARD 99
-        C_STANDARD_REQUIRED YES
-        C_EXTENSIONS NO
+    target_include_directories(giflib_regression_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
     )
+    giflib_configure_test(giflib_regression_tests)
 
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT CMAKE_CROSSCOMPILING)
-        target_sources(giflib_regression_tests PRIVATE
-            tests/test_allocator.c
-        )
-        target_compile_definitions(giflib_regression_tests PRIVATE
-            GIFLIB_TEST_ALLOC_TRACKING=1
-        )
-        target_link_options(giflib_regression_tests PRIVATE
-            "-Wl,--wrap=malloc"
-            "-Wl,--wrap=calloc"
-            "-Wl,--wrap=realloc"
-            "-Wl,--wrap=free"
-        )
-    endif()
+    add_executable(gif_decoder_facade_tests
+        tests/test_decoder.c
+    )
+    target_link_libraries(gif_decoder_facade_tests PRIVATE giflib_embedded)
+    giflib_configure_test(gif_decoder_facade_tests)
 
     add_library(giflib_private_header_check OBJECT
         tests/private_header_self_contained.c
@@ -72,5 +107,18 @@ if(GIFLIB_BUILD_TESTS)
         C_EXTENSIONS NO
     )
 
+    add_library(gif_decoder_public_header_check OBJECT
+        tests/public_header_self_contained.c
+    )
+    target_include_directories(gif_decoder_public_header_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    set_target_properties(gif_decoder_public_header_check PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+
     add_test(NAME giflib_regression COMMAND giflib_regression_tests)
+    add_test(NAME gif_decoder_facade COMMAND gif_decoder_facade_tests)
 endif()

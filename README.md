@@ -47,17 +47,44 @@ Completed:
 - removal of unused platform file-I/O headers from the decoder core;
 - private-header self-containment;
 - image pixel-count overflow protection;
-- preservation of the underlying `DGifOpen()` error.
+- preservation of the underlying `DGifOpen()` error;
+- an opaque public decoder facade;
+- a short-read-aware byte-source callback with distinct EOF and I/O errors;
+- platform-independent stream information and status mapping.
 
-In progress:
+The next stage will add caller-owned RGB888/BGR888 output surfaces and basic
+streaming composition. Later stages will add animation metadata, transparency,
+disposal modes, RGBA output, and interlace handling. Allocator abstraction and
+platform adapters are intentionally deferred until the streaming architecture
+is stable.
 
-- an opaque public decoder facade with a short-read-aware byte-source callback
-  and platform-independent status model.
+## Public API
 
-Later stages will add caller-owned output surfaces, streaming composition,
-animation metadata, transparency, disposal modes, RGBA output, and interlace
-handling. Allocator abstraction and platform adapters are intentionally
-deferred until the streaming architecture is stable.
+Applications include only `gif_decoder.h`. The decoder is opaque, and the
+application supplies input through `GifReadCallback`:
+
+```c
+#include <gif_decoder.h>
+
+GifDecoderConfig config = {
+    .read = application_read,
+    .io_context = &application_source,
+};
+GifDecoder *decoder = NULL;
+GifStreamInfo stream;
+
+GifStatus status = gif_decoder_open(&config, &decoder, &stream);
+if (status == GIF_STATUS_OK) {
+    /* stream.canvas_width and stream.canvas_height are now available. */
+    gif_decoder_close(decoder);
+}
+```
+
+The read callback reports both a `GifReadStatus` and the actual byte count.
+`GIF_READ_OK` may return a non-zero short read; the internal bridge continues
+reading until giflib's request is satisfied. `GIF_READ_EOF` and
+`GIF_READ_IO_ERROR` remain distinct and are mapped to public decoder statuses.
+The callback does not receive or expose any giflib type.
 
 ## Dependencies
 
@@ -90,8 +117,13 @@ This produces the `giflib_embedded` static library. Toolchain installation
 paths and target-specific compiler flags belong in the caller's toolchain file,
 not in this repository.
 
+`cmake --install build --prefix <destination>` installs only the static library
+and the public `gif_decoder.h` header; private giflib headers are not installed.
+
 ## Repository layout
 
+- `include/gif_decoder.h`: the only application-facing public header.
+- `gif_decoder.c`: opaque facade and byte-source bridge.
 - `dgif_lib.c`, `gifalloc.c`, `gif_err.c`: trimmed giflib decoder core.
 - `gif_lib.h`, `gif_lib_private.h`: low-level and private giflib interfaces.
 - `openbsd-reallocarray.c`: overflow-safe allocation compatibility helper.
