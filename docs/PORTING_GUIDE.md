@@ -41,6 +41,7 @@ extern void display_framebuffer(const void *pixels,
                                 uint32_t width,
                                 uint32_t height,
                                 size_t stride_bytes);
+extern void application_delay_ms(uint32_t delay_ms);
 
 static GifStatus decode_and_display(const void *resource) {
     GifDecoderConfig config = {
@@ -71,6 +72,7 @@ static GifStatus decode_and_display(const void *resource) {
                                 stream.canvas_width,
                                 stream.canvas_height,
                                 surface.stride_bytes);
+            application_delay_ms(frame.delay_ms);
         }
     }
 
@@ -91,18 +93,23 @@ void show_selected_gif(void) {
 }
 ```
 
-`application_select_gif()` and `display_framebuffer()` represent product code,
-not functions supplied by this library. The selected resource might come from
-a menu, command interface, resource table, or another run-time mechanism.
+`application_select_gif()`, `display_framebuffer()`, and
+`application_delay_ms()` represent product code, not functions supplied by
+this library. The selected resource might come from a menu, command interface,
+resource table, or another run-time mechanism.
 
 The framebuffer, display operation, and playback timing remain application
-responsibilities. The current public `GifFrameInfo` does not expose a frame
-delay, so the example does not invent one. The decoder never sleeps and never
-controls a display.
+responsibilities. `GifFrameInfo.delay_ms` reports the GIF delay in
+milliseconds, including zero, but the application decides how or whether to
+wait. The decoder never sleeps and never controls a display.
 
 The output capacity and stride must cover the dimensions returned in
 `GifStreamInfo`. The application may use a fixed maximum-size buffer as above,
 a pool, or another caller-owned allocation policy.
+
+The repository's
+[complete memory animation example](../examples/memory_animation/README.md)
+implements this workflow without a filesystem or platform SDK.
 
 ## 2. Follow the porting boundary from the public API
 

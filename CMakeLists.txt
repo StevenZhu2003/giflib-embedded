@@ -1,4 +1,6 @@
 # Build definition for the platform-neutral decoder library and its host tests.
+# Copyright (c) 2026 Steven Zhu
+# SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.16)
 
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
@@ -57,6 +59,7 @@ install(FILES include/gif_decoder.h
 )
 
 option(GIFLIB_BUILD_TESTS "Build host-side regression tests" ON)
+option(GIFLIB_BUILD_EXAMPLES "Build hosted usage examples" OFF)
 
 if(GIFLIB_BUILD_TESTS)
     enable_testing()
@@ -175,4 +178,39 @@ if(GIFLIB_BUILD_TESTS)
     # Register only executable host tests; object targets are compile checks.
     add_test(NAME giflib_regression COMMAND giflib_regression_tests)
     add_test(NAME gif_decoder_facade COMMAND gif_decoder_facade_tests)
+endif()
+
+if(GIFLIB_BUILD_EXAMPLES)
+    # Complete memory-backed example with its own port implementation.
+    add_executable(gif_memory_animation_example
+        examples/memory_animation/main.c
+        examples/memory_animation/gif_porting.c
+    )
+    target_link_libraries(gif_memory_animation_example PRIVATE
+        giflib_embedded
+    )
+    target_include_directories(gif_memory_animation_example PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/examples/memory_animation"
+    )
+    set_target_properties(gif_memory_animation_example PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+
+    if(MSVC)
+        target_compile_options(gif_memory_animation_example PRIVATE /W4)
+    else()
+        target_compile_options(gif_memory_animation_example PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+        )
+    endif()
+
+    if(GIFLIB_BUILD_TESTS)
+        add_test(NAME gif_memory_animation_example
+                 COMMAND gif_memory_animation_example)
+    endif()
 endif()

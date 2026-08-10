@@ -21,6 +21,12 @@ typedef enum GifSourceTerminal {
     GIF_SOURCE_IO_ERROR    /**< The source reported an unrecoverable error. */
 } GifSourceTerminal;
 
+/** @brief Graphic Control Extension state applying to the next image only. */
+typedef struct GifFrameControl {
+    int transparent_color;  /**< Palette index skipped during composition. */
+    uint32_t delay_ms;      /**< Frame delay converted from centiseconds. */
+} GifFrameControl;
+
 /** @brief Internal state hidden behind the public opaque decoder handle. */
 struct GifDecoder {
     GifFileType *gif;                  /**< Private giflib decoder instance. */
@@ -28,10 +34,25 @@ struct GifDecoder {
     GifSourceTerminal source_terminal; /**< Remembered source terminal state. */
     GifOutputSurface output;           /**< Copied caller output descriptor. */
     GifStatus terminal_status;         /**< Sticky public decode failure. */
+    GifFrameControl pending_control;   /**< Control state for the next image. */
     uint32_t frame_index;              /**< Next zero-based frame index. */
     uint8_t output_bound;              /**< Non-zero after output binding. */
     uint8_t stream_ended;              /**< Non-zero after the GIF trailer. */
 };
+
+/**
+ * @brief Reset pending control state to the GIF defaults for an image.
+ *
+ * Graphic Control Extensions apply only to the next graphic rendering block.
+ * Resetting after every decoded image prevents delay and transparency from
+ * leaking into a later image that has no GCE.
+ *
+ * @param[out] control Frame control state to reset.
+ */
+static void gif_decoder_reset_frame_control(GifFrameControl *control) {
+    control->transparent_color = NO_TRANSPARENT_COLOR;
+    control->delay_ms = 0;
+}
 
 /**
  * @brief Adapt the hidden short-read source to giflib's exact-read contract.
@@ -288,11 +309,12 @@ static void gif_decoder_initialize_output(GifDecoder *decoder) {
 }
 
 /**
- * @brief Consume one extension record without accumulating extension storage.
+ * @brief Consume one extension and retain a GCE for the next image.
  *
- * Stage 3 accepts only Graphic Control Extensions whose behavior is equivalent
- * to disposal 0/1 without delay, transparency, or user input. Features that
- * would change visible output are rejected explicitly.
+ * Delay and transparency are copied into private streaming state rather than
+ * accumulated in giflib SavedImages. Disposal 0/1 are valid at this stage;
+ * user-input control and later disposal methods remain explicit unsupported
+ * features.
  *
  * @param[in,out] decoder Decoder positioned after an extension introducer.
  * @return Public status for the consumed or rejected extension.
@@ -307,19 +329,34 @@ static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
     }
 
     if (extension_code == GRAPHICS_EXT_FUNC_CODE) {
-        uint8_t packed;
-        uint8_t disposal_mode;
+        GraphicsControlBlock control;
 
         if (extension == NULL || extension[0] != 4) {
             return GIF_STATUS_INVALID_FORMAT;
         }
-
-        packed = extension[1];
-        disposal_mode = (uint8_t)((packed >> 2) & 0x07);
-        if (disposal_mode > DISPOSE_DO_NOT || (packed & 0x03) != 0 ||
-            extension[2] != 0 || extension[3] != 0) {
+        if ((extension[1] & 0xe0U) != 0) {
+            return GIF_STATUS_INVALID_FORMAT;
+        }
+        if (DGifExtensionToGCB((size_t)extension[0], extension + 1,
+                               &control) == GIF_ERROR) {
+            return GIF_STATUS_INVALID_FORMAT;
+        }
+        if (control.UserInputFlag || control.DisposalMode > DISPOSE_DO_NOT) {
             return GIF_STATUS_UNSUPPORTED_FEATURE;
         }
+
+        decoder->pending_control.delay_ms =
+            (uint32_t)control.DelayTime * 10U;
+        decoder->pending_control.transparent_color =
+            control.TransparentColor;
+
+        if (DGifGetExtensionNext(decoder->gif, &extension) == GIF_ERROR) {
+            return gif_decoder_map_error(decoder, decoder->gif->Error);
+        }
+        if (extension != NULL) {
+            return GIF_STATUS_INVALID_FORMAT;
+        }
+        return GIF_STATUS_OK;
     } else if (extension_code == PLAINTEXT_EXT_FUNC_CODE) {
         return GIF_STATUS_UNSUPPORTED_FEATURE;
     }
@@ -387,6 +424,11 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
         color_map->ColorCount <= 0) {
         return GIF_STATUS_INVALID_FORMAT;
     }
+    if (decoder->pending_control.transparent_color != NO_TRANSPARENT_COLOR &&
+        decoder->pending_control.transparent_color >=
+            color_map->ColorCount) {
+        return GIF_STATUS_INVALID_FORMAT;
+    }
 
     row_buffer = (GifPixelType *)malloc((size_t)image->Width);
     if (row_buffer == NULL) {
@@ -417,6 +459,11 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
                 free(row_buffer);
                 return GIF_STATUS_INVALID_FORMAT;
             }
+            if (palette_index ==
+                decoder->pending_control.transparent_color) {
+                destination += 3;
+                continue;
+            }
             color = &color_map->Colors[palette_index];
             if (decoder->output.pixel_format == GIF_PIXEL_RGB888) {
                 destination[0] = color->Red;
@@ -434,6 +481,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
     free(row_buffer);
 
     out_frame->frame_index = decoder->frame_index;
+    out_frame->delay_ms = decoder->pending_control.delay_ms;
     out_frame->image_left = (uint32_t)image->Left;
     out_frame->image_top = (uint32_t)image->Top;
     out_frame->image_width = (uint32_t)image->Width;
@@ -443,6 +491,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
     out_frame->updated_width = out_frame->image_width;
     out_frame->updated_height = out_frame->image_height;
     decoder->frame_index++;
+    gif_decoder_reset_frame_control(&decoder->pending_control);
 
     return GIF_STATUS_OK;
 }
@@ -475,6 +524,7 @@ GifStatus gif_decoder_core_open(GifPortingHandle source_handle,
 
     decoder->source_handle = source_handle;
     decoder->source_terminal = GIF_SOURCE_ACTIVE;
+    gif_decoder_reset_frame_control(&decoder->pending_control);
 
     gif = DGifOpen(decoder, gif_decoder_read_bridge, &giflib_error);
     if (gif == NULL) {

@@ -71,18 +71,22 @@ typedef struct GifOutputSurface {
 /**
  * @brief Metadata describing a frame and the canvas rectangle it updates.
  *
- * Frame indices are zero-based. At the current stage the updated rectangle is
- * identical to the image rectangle; later disposal modes may expand it.
+ * Frame indices are zero-based. Delay is the exact GIF centisecond value
+ * converted to milliseconds; zero remains zero and timing policy belongs to
+ * the application. At the current stage the updated rectangle conservatively
+ * equals the image rectangle even when transparent pixels remain unchanged;
+ * later disposal modes may expand it.
  */
 typedef struct GifFrameInfo {
-    uint32_t frame_index;   /**< Zero-based decoded frame number. */
-    uint32_t image_left;    /**< Image rectangle left edge. */
-    uint32_t image_top;     /**< Image rectangle top edge. */
-    uint32_t image_width;   /**< Image rectangle width. */
-    uint32_t image_height;  /**< Image rectangle height. */
-    uint32_t updated_left;  /**< Updated canvas rectangle left edge. */
-    uint32_t updated_top;   /**< Updated canvas rectangle top edge. */
-    uint32_t updated_width; /**< Updated canvas rectangle width. */
+    uint32_t frame_index;    /**< Zero-based decoded frame number. */
+    uint32_t delay_ms;       /**< GIF frame delay in milliseconds. */
+    uint32_t image_left;     /**< Image rectangle left edge. */
+    uint32_t image_top;      /**< Image rectangle top edge. */
+    uint32_t image_width;    /**< Image rectangle width. */
+    uint32_t image_height;   /**< Image rectangle height. */
+    uint32_t updated_left;   /**< Updated canvas rectangle left edge. */
+    uint32_t updated_top;    /**< Updated canvas rectangle top edge. */
+    uint32_t updated_width;  /**< Updated canvas rectangle width. */
     uint32_t updated_height; /**< Updated canvas rectangle height. */
 } GifFrameInfo;
 

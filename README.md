@@ -57,13 +57,17 @@ Completed:
 - caller-owned output surfaces with checked capacity and arbitrary stride;
 - streaming non-interlaced RGB888 and BGR888 frame composition;
 - global and local color tables, partial image rectangles, and disposal 0/1;
+- streaming Graphic Control Extension state with frame-scoped delay and
+  transparency;
+- transparent palette pixels that preserve the existing composited canvas;
+- public animation timing metadata in milliseconds without decoder-side waits;
 - fixed public, hidden-core, and single-file platform-porting boundaries.
 
-The next stage will add Graphic Control Extension state, transparency, and
-animation timing metadata. Later stages will add disposal modes 2/3, RGBA
-output, and interlace handling. Allocator abstraction and optional ready-made
-storage adapters remain deferred until the streaming architecture is stable;
-the stable three-function port contract is now in place.
+The next stage will add disposal mode 2. Later stages will add RGBA output,
+disposal mode 3, and interlace handling. Allocator abstraction and optional
+reusable storage-adapter modules remain deferred until the streaming
+architecture is stable; examples may still include a local port implementation
+to demonstrate the stable three-function contract.
 
 ## Public API
 
@@ -73,8 +77,9 @@ application selects a source without including a filesystem or driver header:
 ```c
 #include <gif_decoder.h>
 
+const void *selected_resource = application_select_gif();
 GifDecoderConfig config = {
-    .source_identifier = "media/animation.gif",
+    .source_identifier = selected_resource,
 };
 GifDecoder *decoder = NULL;
 GifStreamInfo stream;
@@ -94,6 +99,7 @@ if (status == GIF_STATUS_OK) {
         while ((status = gif_decoder_next_frame(decoder, &frame)) ==
                GIF_STATUS_OK) {
             display_framebuffer(surface.pixels);
+            application_delay_ms(frame.delay_ms);
         }
     }
     gif_decoder_close(decoder);
@@ -107,10 +113,22 @@ stdio, or device-driver type. See
 [the porting guide](docs/PORTING_GUIDE.md) for the complete three-function
 contract, implementation tutorial, and verification procedure.
 
-At the current stage, interlaced images, transparency, non-zero frame delays,
-user-input GCEs, disposal modes 2/3, and Plain Text Extensions return
-`GIF_STATUS_UNSUPPORTED_FEATURE`. They are not silently decoded with incorrect
-semantics.
+The application owns `application_select_gif()`, `display_framebuffer()`, and
+`application_delay_ms()`; they are not decoder APIs. Frame delay, including a
+zero delay, is reported exactly in milliseconds and the application chooses
+how or whether to wait.
+
+At the current stage, interlaced images, user-input GCEs, disposal modes 2/3,
+and Plain Text Extensions return `GIF_STATUS_UNSUPPORTED_FEATURE`. They are not
+silently decoded with incorrect semantics.
+
+## Complete example
+
+The buildable [memory animation example](examples/memory_animation/README.md)
+shows the complete source-selection, open, output binding, multi-frame decode,
+display, application delay, end-of-stream, and close workflow. Its byte source,
+RGB888 framebuffer, animation data, display function, and delay policy are all
+included, so no platform SDK or filesystem is required.
 
 ## Dependencies
 
@@ -119,6 +137,12 @@ the trimmed giflib core, including `malloc`, `calloc`, `realloc`, `free`, and
 memory/string operations. The fixed facade and hidden core do not open files
 and have no direct filesystem dependency; only the user-supplied
 `port/gif_porting.c` may do so.
+
+FatFs is not bundled, linked, or required by this repository. The Porting Guide
+contains a project-original FatFs integration example for users who already
+provide FatFs in a parent project. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the precise bundled versus
+referenced dependency boundary.
 
 ## Build and test
 
@@ -144,6 +168,15 @@ This produces the `giflib_embedded` static library. Toolchain installation
 paths and target-specific compiler flags belong in the caller's toolchain file,
 not in this repository.
 
+Build the complete hosted example with:
+
+```sh
+cmake -S . -B build/example \
+  -DGIFLIB_BUILD_TESTS=OFF \
+  -DGIFLIB_BUILD_EXAMPLES=ON
+cmake --build build/example
+```
+
 The repository's `port/gif_porting.c` is a compile-safe, unconfigured template.
 Implement its open/read/close bodies for the target before decoding. No other
 library or application file needs platform storage glue.
@@ -158,6 +191,7 @@ and the public `gif_decoder.h` header; private giflib headers are not installed.
 - `port/`: stable port contract and the only target-editable source file.
 - `vendor/giflib/`: upstream-derived parser, LZW implementation, and license.
 - `tests/`: host-side regression tests and memory-backed test port.
+- `examples/`: complete applications with their own porting implementation.
 - `docs/`: the detailed porting guide and source documentation convention.
 - `CMakeLists.txt`: host and cross-compilation build definition.
 

@@ -1,6 +1,9 @@
 /**
  * @file test_porting.h
  * @brief Shared in-memory source state for the host test port.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #ifndef GIFLIB_TEST_PORTING_H

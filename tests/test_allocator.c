@@ -1,6 +1,9 @@
 /**
  * @file test_allocator.c
  * @brief GNU linker-wrap allocator tracking and fault injection for tests.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #include <stddef.h>

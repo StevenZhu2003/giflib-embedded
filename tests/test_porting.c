@@ -1,6 +1,9 @@
 /**
  * @file test_porting.c
  * @brief Host-only in-memory implementation of the stable porting contract.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #include "gif_porting.h"

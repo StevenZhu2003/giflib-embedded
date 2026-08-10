@@ -94,14 +94,14 @@ giflib:
 - `src/gif_decoder.c` implements the fixed application facade and dispatch
   between the platform port and hidden decoder. `src/gif_decoder_core.c` and
   `src/gif_decoder_core.h` implement the private short-read bridge, error
-  mapping, output validation, RGB888/BGR888 streaming compositor, and explicit
-  unsupported-feature handling.
+  mapping, output validation, RGB888/BGR888 streaming compositor, frame-scoped
+  GCE delay and transparency state, and explicit unsupported-feature handling.
 - `port/gif_porting.c` and `port/gif_porting.h` define the project-original
   platform integration skeleton and its stable open/read/close contract. They
   contain no source copied from a filesystem, device driver, or storage
   implementation.
-- `CMakeLists.txt` defines this project's host, cross-compilation, test, and
-  installation build.
+- `CMakeLists.txt` defines this project's host, cross-compilation,
+  installation, example, and test builds.
 - `tests/private_header_self_contained.c`,
   `tests/public_header_self_contained.c`,
   `tests/core_header_self_contained.c`,
@@ -109,11 +109,36 @@ giflib:
   `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and
   `tests/test_regression.c` are this project's portability and regression
   tests. Their small in-memory GIF byte fixtures were created for these tests.
+- `examples/memory_animation/main.c`,
+  `examples/memory_animation/gif_porting.c`,
+  `examples/memory_animation/memory_source.h`, and
+  `examples/memory_animation/README.md` form a project-original, hosted-C
+  complete usage example. Its small GIF byte fixture was created for this
+  project and is not copied from an external animation or media asset.
 - `README.md`, `docs/PORTING_GUIDE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`,
   `LICENSE`, and this notice were written or selected for this repository.
 
 Project-original work is Copyright (c) 2026 Steven Zhu and is licensed under
 the MIT License in [LICENSE](LICENSE).
+
+## External integrations referenced but not bundled
+
+### FatFs
+
+The Porting Guide refers to the FatFs API and contains project-original adapter
+code showing how `gif_porting_open()`, `gif_porting_read()`, and
+`gif_porting_close()` can call `f_open()`, `f_read()`, and `f_close()`. This
+repository does not contain a FatFs source file, header, binary, sample project,
+or copied FatFs implementation code. Its library, tests, and complete memory
+animation example do not link to FatFs.
+
+FatFs is therefore an optional external integration rather than a bundled
+third-party component of this repository. Users who supply FatFs in a parent
+project are responsible for the license and attribution requirements of the
+specific FatFs version they redistribute. FatFs is developed by ChaN and is
+distributed under its own permissive terms. The upstream project and official
+license note are available at <https://elm-chan.org/fsw/ff/> and
+<https://elm-chan.org/fsw/ff/doc/appnote.html#license>.
 
 ## No endorsement
 

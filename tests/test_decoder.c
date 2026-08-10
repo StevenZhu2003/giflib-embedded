@@ -1,6 +1,9 @@
 /**
  * @file test_decoder.c
  * @brief Host-side tests for the platform-neutral GIF decoder facade.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #include "gif_decoder.h"
@@ -113,12 +116,45 @@ static const uint8_t gif_interlaced[] = {
     0x3b,
 };
 
-/** @brief Transparent GIF used to verify unsupported-feature reporting. */
-static const uint8_t gif_with_transparency[] = {
+/** @brief Three-frame GIF exercising delay, transparency, and GCE scope. */
+static const uint8_t gif_three_frames_with_gce[] = {
+    'G', 'I', 'F', '8', '9', 'a',
+    0x02, 0x00, 0x01, 0x00, 0x81, 0x02, 0x00,
+    0x00, 0x00, 0x00, 0x11, 0x22, 0x33,
+    0x44, 0x55, 0x66, 0xff, 0xff, 0xff,
+    0x21, 0xf9, 0x04, 0x05, 0x02, 0x00, 0x00, 0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x44, 0x0a, 0x00,
+    0x21, 0xf9, 0x04, 0x04, 0x03, 0x00, 0x00, 0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x44, 0x01, 0x00,
+    0x2c,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x44, 0x01, 0x00,
+    0x3b,
+};
+
+/** @brief GCE followed by a non-rendering comment before its target image. */
+static const uint8_t gif_gce_before_comment[] = {
     'G', 'I', 'F', '8', '9', 'a',
     0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x11, 0x22, 0x33,
-    0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x21, 0xf9, 0x04, 0x04, 0xff, 0xff, 0x00, 0x00,
+    0x21, 0xfe, 0x03, 'g', 'i', 'f', 0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x4c, 0x01, 0x00,
+    0x3b,
+};
+
+/** @brief GIF whose GCE requests unsupported user-input interaction. */
+static const uint8_t gif_with_user_input[] = {
+    'G', 'I', 'F', '8', '9', 'a',
+    0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x11, 0x22, 0x33,
+    0x21, 0xf9, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00,
     0x2c,
     0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
     0x02, 0x02, 0x44, 0x01, 0x00,
@@ -449,6 +485,7 @@ static void test_rgb888_and_stride(void) {
     CHECK(pixels[6] == 0xee && pixels[7] == 0xee);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(frame.frame_index == 0);
+    CHECK(frame.delay_ms == 0);
     CHECK(frame.image_left == 0 && frame.image_top == 0);
     CHECK(frame.image_width == 2 && frame.image_height == 1);
     CHECK(frame.updated_left == 0 && frame.updated_top == 0);
@@ -570,6 +607,102 @@ static void test_two_streaming_frames(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Apply GCE delay and transparency only to their associated frames. */
+static void test_graphics_control_scope(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+
+    memory_source_init(&source, gif_three_frames_with_gce,
+                       sizeof(gif_three_frames_with_gce));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 0 && frame.delay_ms == 20);
+    CHECK(pixels[0] == 0x44 && pixels[1] == 0x55 && pixels[2] == 0x66);
+    CHECK(pixels[3] == 0x11 && pixels[4] == 0x22 && pixels[5] == 0x33);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 1 && frame.delay_ms == 30);
+    CHECK(pixels[0] == 0x00 && pixels[1] == 0x00 && pixels[2] == 0x00);
+    CHECK(pixels[3] == 0x11 && pixels[4] == 0x22 && pixels[5] == 0x33);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 2 && frame.delay_ms == 0);
+    CHECK(pixels[0] == 0x00 && pixels[1] == 0x00 && pixels[2] == 0x00);
+    CHECK(pixels[3] == 0x00 && pixels[4] == 0x00 && pixels[5] == 0x00);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+
+    gif_decoder_close(decoder);
+}
+
+/** @brief Preserve a maximum-delay GCE across a non-rendering extension. */
+static void test_graphics_control_before_comment(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[3];
+
+    memory_source_init(&source, gif_gce_before_comment,
+                       sizeof(gif_gce_before_comment));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.delay_ms == 655350U);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    gif_decoder_close(decoder);
+}
+
+/** @brief Reject malformed GCE reserved bits and transparent indices. */
+static void test_invalid_graphics_control(void) {
+    uint8_t invalid[sizeof(gif_three_frames_with_gce)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+
+    memcpy(invalid, gif_three_frames_with_gce, sizeof(invalid));
+    invalid[28] |= 0x20; /* Set one reserved GCE packed-field bit. */
+    memory_source_init(&source, invalid, sizeof(invalid));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_INVALID_FORMAT);
+        gif_decoder_close(decoder);
+    }
+
+    decoder = NULL;
+    memcpy(invalid, gif_three_frames_with_gce, sizeof(invalid));
+    invalid[31] = 4; /* The four-entry palette has valid indices 0..3. */
+    memory_source_init(&source, invalid, sizeof(invalid));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_INVALID_FORMAT);
+        gif_decoder_close(decoder);
+    }
+}
+
 /**
  * @brief Verify stable rejection of one syntactically valid unsupported GIF.
  *
@@ -597,11 +730,11 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     gif_decoder_close(decoder);
 }
 
-/** @brief Reject interlace, transparency, and unsupported disposal modes. */
+/** @brief Reject interlace, user input, and unsupported disposal modes. */
 static void test_unsupported_features(void) {
     check_unsupported_gif(gif_interlaced, sizeof(gif_interlaced));
-    check_unsupported_gif(gif_with_transparency,
-                          sizeof(gif_with_transparency));
+    check_unsupported_gif(gif_with_user_input,
+                          sizeof(gif_with_user_input));
     check_unsupported_gif(gif_with_disposal_two,
                           sizeof(gif_with_disposal_two));
 }
@@ -747,6 +880,9 @@ int main(void) {
     test_stride_row_advance();
     test_partial_frame_background();
     test_two_streaming_frames();
+    test_graphics_control_scope();
+    test_graphics_control_before_comment();
+    test_invalid_graphics_control();
     test_unsupported_features();
     test_frame_read_failures();
     test_malformed_image_data();

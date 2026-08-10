@@ -1,6 +1,9 @@
 /**
  * @file test_regression.c
  * @brief Low-level regression tests for the retained giflib streaming API.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #include "gif_lib.h"

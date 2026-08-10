@@ -1,6 +1,9 @@
 /**
  * @file core_header_self_contained.c
  * @brief Compile-time check that the hidden core header is self-contained.
+ *
+ * Copyright (c) 2026 Steven Zhu
+ * SPDX-License-Identifier: MIT
  */
 
 #include "gif_decoder_core.h"
