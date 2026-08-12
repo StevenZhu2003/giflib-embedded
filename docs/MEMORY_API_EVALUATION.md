@@ -16,7 +16,7 @@ The current facade correctly normalizes allocation semantics for decoder use:
 - a failed non-zero `realloc` leaves the old allocation valid;
 - `free(NULL)` does nothing.
 
-Those rules make it a good decoder-internal adapter, but not yet a complete application allocator contract. BUILTIN owns one process-global static pool, initializes it lazily, provides no deinitialization/reset lifecycle, has no allocation accounting API, and is not synchronized. PRIVATE and future LVGL providers may have their own initialization and locking requirements. Exposing raw allocation functions now would make applications depend on ambiguous ownership, pool-sharing, alignment, and thread-safety behavior.
+Those rules make it a good decoder-internal adapter, but not yet a complete application allocator contract. BUILTIN owns one process-global static pool, initializes it lazily, provides no deinitialization/reset lifecycle, has no allocation accounting API, and is not synchronized. PRIVATE and LVGL providers have application-defined initialization and locking requirements. Exposing raw allocation functions now would make applications depend on ambiguous ownership, pool-sharing, alignment, and thread-safety behavior.
 
 ## Boundaries considered
 
@@ -51,6 +51,6 @@ Sharing the current BUILTIN pool would create practical risks: U8g2 allocation m
 - **BUILTIN:** a service would need explicit pool ownership and initialization; it must remain bounded and never fall back to libc.
 - **PRIVATE:** service calls must reach exactly one application allocator domain. Provider initialization and locking remain application-defined.
 - **LIBC:** useful for hosted use and integration bring-up, but its allocator behavior must not become the public semantic baseline.
-- **LVGL (future):** call only stable LVGL public allocation APIs after LVGL initialization. Do not expose `lv_tlsf_*` or LVGL internal memory-core APIs.
+- **LVGL:** use only stable LVGL public allocation APIs after application-owned LVGL initialization. Do not expose `lv_tlsf_*` or LVGL internal memory-core APIs.
 
 Until this contract is reviewed and implemented separately, application-facing memory use should remain application-owned and decoder allocation remains an internal library concern.

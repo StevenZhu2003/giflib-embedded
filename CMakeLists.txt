@@ -6,15 +6,21 @@ cmake_minimum_required(VERSION 3.16)
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
 set(GIF_MEM_BACKEND "BUILTIN" CACHE STRING
-    "Memory backend: BUILTIN, PRIVATE, or LIBC")
-set_property(CACHE GIF_MEM_BACKEND PROPERTY STRINGS BUILTIN PRIVATE LIBC)
+    "Memory backend: BUILTIN, PRIVATE, LIBC, or LVGL")
+set_property(CACHE GIF_MEM_BACKEND PROPERTY STRINGS BUILTIN PRIVATE LIBC LVGL)
 string(TOUPPER "${GIF_MEM_BACKEND}" GIF_MEM_BACKEND_NORMALIZED)
 
 if(NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "BUILTIN" AND
    NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "PRIVATE" AND
-   NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "LIBC")
-    message(FATAL_ERROR "GIF_MEM_BACKEND must be BUILTIN, PRIVATE, or LIBC")
+   NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "LIBC" AND
+   NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "LVGL")
+    message(FATAL_ERROR "GIF_MEM_BACKEND must be BUILTIN, PRIVATE, LIBC, or LVGL")
 endif()
+
+set(GIFLIB_LVGL_INCLUDE_DIR "" CACHE PATH
+    "Directory containing the public LVGL lvgl.h header (LVGL backend only)")
+set(GIFLIB_LVGL_LIBRARY "" CACHE STRING
+    "LVGL library used by consumers of giflib_embedded (LVGL backend only)")
 
 # Hidden decoder core plus the retained giflib parser and LZW implementation.
 set(GIFLIB_DECODER_CORE_SOURCES
@@ -39,6 +45,10 @@ set(GIFLIB_MEMORY_PRIVATE_SOURCES
 
 set(GIFLIB_MEMORY_LIBC_SOURCES
     src/memory/gif_mem_libc.c
+)
+
+set(GIFLIB_MEMORY_LVGL_SOURCES
+    src/memory/gif_mem_lvgl.c
 )
 
 function(giflib_apply_common_options target)
@@ -77,6 +87,11 @@ function(giflib_add_memory_backend target backend)
         target_compile_definitions(${target} PRIVATE
             GIF_MEM_BACKEND=GIF_MEM_USE_LIBC
         )
+    elseif(backend STREQUAL "LVGL")
+        target_sources(${target} PRIVATE ${GIFLIB_MEMORY_LVGL_SOURCES})
+        target_compile_definitions(${target} PRIVATE
+            GIF_MEM_BACKEND=GIF_MEM_USE_LVGL
+        )
     else()
         message(FATAL_ERROR "Unknown giflib memory backend: ${backend}")
     endif()
@@ -104,6 +119,19 @@ target_include_directories(giflib_embedded
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
 )
 giflib_apply_common_options(giflib_embedded)
+
+if(GIF_MEM_BACKEND_NORMALIZED STREQUAL "LVGL")
+    if(GIFLIB_LVGL_INCLUDE_DIR STREQUAL "" OR GIFLIB_LVGL_LIBRARY STREQUAL "")
+        message(FATAL_ERROR
+            "LVGL backend requires GIFLIB_LVGL_INCLUDE_DIR and GIFLIB_LVGL_LIBRARY")
+    endif()
+    target_include_directories(giflib_embedded PRIVATE
+        "${GIFLIB_LVGL_INCLUDE_DIR}"
+    )
+    target_link_libraries(giflib_embedded INTERFACE
+        "${GIFLIB_LVGL_LIBRARY}"
+    )
+endif()
 
 # Install the static library, facade header, and centralized configuration.
 install(TARGETS giflib_embedded
@@ -196,6 +224,42 @@ if(GIFLIB_BUILD_TESTS)
     )
     giflib_apply_common_options(gif_memory_builtin_semantics_tests)
 
+    # Exercise the common facade through LVGL 8.4's public allocator names.
+    add_executable(gif_memory_lvgl8_tests
+        tests/test_memory.c
+        tests/lvgl_mock.c
+    )
+    giflib_add_memory_backend(gif_memory_lvgl8_tests LVGL)
+    target_compile_definitions(gif_memory_lvgl8_tests PRIVATE
+        GIFLIB_TEST_ALLOC_TRACKING=1
+        LVGL_VERSION_MAJOR=8
+        LVGL_VERSION_MINOR=4
+    )
+    target_include_directories(gif_memory_lvgl8_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/lvgl_mock"
+    )
+    giflib_apply_common_options(gif_memory_lvgl8_tests)
+
+    # Exercise the common facade through LVGL 9.x's public allocator names.
+    add_executable(gif_memory_lvgl9_tests
+        tests/test_memory.c
+        tests/lvgl_mock.c
+    )
+    giflib_add_memory_backend(gif_memory_lvgl9_tests LVGL)
+    target_compile_definitions(gif_memory_lvgl9_tests PRIVATE
+        GIFLIB_TEST_ALLOC_TRACKING=1
+        LVGL_VERSION_MAJOR=9
+        LVGL_VERSION_MINOR=0
+    )
+    target_include_directories(gif_memory_lvgl9_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/lvgl_mock"
+    )
+    giflib_apply_common_options(gif_memory_lvgl9_tests)
+
     # Stress the actual fixed pool and check TLSF's internal invariants.
     add_executable(gif_memory_builtin_tests
         tests/test_memory_builtin.c
@@ -229,6 +293,31 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_apply_common_options(gif_decoder_facade_libc_tests)
+
+    # Exercise full decoder ownership and cleanup through the LVGL backend.
+    add_executable(gif_decoder_facade_lvgl_tests
+        tests/test_decoder.c
+        tests/test_porting.c
+        tests/lvgl_mock.c
+        src/gif_decoder.c
+        ${GIFLIB_DECODER_CORE_SOURCES}
+    )
+    giflib_add_memory_backend(gif_decoder_facade_lvgl_tests LVGL)
+    target_compile_definitions(gif_decoder_facade_lvgl_tests PRIVATE
+        GIFLIB_TEST_ALLOC_TRACKING=1
+        LVGL_VERSION_MAJOR=9
+        LVGL_VERSION_MINOR=0
+    )
+    target_include_directories(gif_decoder_facade_lvgl_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/lvgl_mock"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
+    )
+    giflib_apply_common_options(gif_decoder_facade_lvgl_tests)
 
     # Compile each boundary header without accidental prior includes.
     add_library(giflib_private_header_check OBJECT
@@ -283,8 +372,11 @@ if(GIFLIB_BUILD_TESTS)
     add_test(NAME gif_memory_libc COMMAND gif_memory_libc_tests)
     add_test(NAME gif_memory_builtin_semantics
              COMMAND gif_memory_builtin_semantics_tests)
+    add_test(NAME gif_memory_lvgl8 COMMAND gif_memory_lvgl8_tests)
+    add_test(NAME gif_memory_lvgl9 COMMAND gif_memory_lvgl9_tests)
     add_test(NAME gif_memory_builtin COMMAND gif_memory_builtin_tests)
     add_test(NAME gif_decoder_facade_libc COMMAND gif_decoder_facade_libc_tests)
+    add_test(NAME gif_decoder_facade_lvgl COMMAND gif_decoder_facade_lvgl_tests)
 
     # Deliberately undersize the fixed pool to verify decoder OOM cleanup.
     add_executable(gif_decoder_builtin_oom_tests

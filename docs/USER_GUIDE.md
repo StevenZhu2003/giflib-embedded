@@ -21,8 +21,9 @@ The selection controls decoder-owned dynamic allocations only. It does not deter
 | `GIF_MEM_USE_BUILTIN` | Default for bounded embedded use. | Select a suitable fixed-pool size with `GIF_MEM_POOL_SIZE`. |
 | `GIF_MEM_USE_PRIVATE` | The product has its own allocator domain. | Implement the three primitives in `port/gif_mem_private.c`. |
 | `GIF_MEM_USE_LIBC` | Hosted development or a product that deliberately uses the C runtime heap. | No allocator port is required. |
+| `GIF_MEM_USE_LVGL` | The product already owns an LVGL 8.4 or 9.x allocator domain. | Initialize LVGL before opening a decoder and keep it initialized until all decoders close. |
 
-`GIF_MEM_BACKEND` defaults to `GIF_MEM_USE_BUILTIN`. BUILTIN owns one fixed TLSF pool, never expands it, and does not fall back to a C library heap. PRIVATE allocation, resize, and release must all use one application allocator domain. LIBC is explicit: it uses the C runtime heap behind the library's private allocation facade, rather than causing decoder or giflib-derived sources to call heap functions directly. `GIF_MEM_POOL_SIZE` and `GIF_MEM_POOL_ALIGNMENT` affect only BUILTIN.
+`GIF_MEM_BACKEND` defaults to `GIF_MEM_USE_BUILTIN`. BUILTIN owns one fixed TLSF pool, never expands it, and does not fall back to a C library heap. PRIVATE allocation, resize, and release must all use one application allocator domain. LIBC is explicit: it uses the C runtime heap behind the library's private allocation facade, rather than causing decoder or giflib-derived sources to call heap functions directly. LVGL uses only LVGL's public allocation, resize, and release API; the library never calls `lv_init()` or `lv_deinit()`. `GIF_MEM_POOL_SIZE` and `GIF_MEM_POOL_ALIGNMENT` affect only BUILTIN.
 
 The library does not add allocator locks. The application must serialize decoder activity unless its selected provider and wider application design intentionally support concurrency.
 

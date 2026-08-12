@@ -6,18 +6,14 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 
 ## HIGH — next work
 
+No HIGH-priority feature is currently scheduled. Allocator backend work is complete; the next planned implementation work is the MID-HIGH disposal behavior stage below.
+
 ## MID-HIGH — planned after the immediate work
 
 ### Stage 6 — Disposal behavior completion
 
 - Audit and extend tests for the already-supported disposal methods 0/1, especially multi-frame composition and transparency interactions.
 - Implement GIF disposal method 2, including correct canvas restoration, updated-rectangle reporting, failure cleanup, and regression coverage.
-
-### Stage 7 — LVGL-compatible allocator backend
-
-- Add `GIF_MEM_USE_LVGL` through the existing private allocator facade.
-- Use only stable public LVGL allocation APIs after LVGL initialization; do not expose or call LVGL/TLSF internal allocator symbols.
-- Define initialization order, allocation-domain ownership, OOM behavior, and thread-safety expectations; test coexistence with the namespaced built-in TLSF implementation.
 
 ## MID — useful, but not the next priority
 

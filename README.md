@@ -42,7 +42,7 @@ vendor/giflib/ ------------------------------ parser + LZW
 - Forward-only GIF streams through one platform porting file, with explicit short-read, EOF, and I/O-error handling.
 - Streaming non-interlaced RGB888/BGR888 composition with global/local palettes, image rectangles, transparency, timing metadata, and disposal methods 0/1.
 - Caller-owned framebuffer, opaque decoder API, and C99 host/cross builds.
-- Selectable BUILTIN fixed-pool, PRIVATE provider, or LIBC allocator backends; the default BUILTIN mode has no libc heap dependency.
+- Selectable BUILTIN fixed-pool, PRIVATE provider, LIBC, or LVGL allocator backends; the default BUILTIN mode has no libc heap dependency.
 
 Unsupported GIF features return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than being decoded with incorrect semantics. See [docs/TODO_LIST.md](docs/TODO_LIST.md) for planned work and priority.
 
@@ -56,7 +56,7 @@ For a runnable reference application, see [examples/embedded_player](examples/em
 
 ## Dependencies
 
-The library requires C99 and basic memory/string operations such as `memset` and `memcpy`. The default BUILTIN configuration has no C-library heap dependency. The fixed facade and hidden core do not open files and have no direct filesystem dependency; only the user-supplied `port/gif_porting.c` may perform storage I/O.
+The library requires C99 and basic memory/string operations such as `memset` and `memcpy`. The default BUILTIN configuration has no C-library heap dependency. The fixed facade and hidden core do not open files and have no direct filesystem dependency; only the user-supplied `port/gif_porting.c` may perform storage I/O. The optional LVGL backend requires an application-provided LVGL 8.4 or 9.x library and uses only its public allocator API.
 
 FatFs is not bundled, linked, or required by this repository. The Porting Guide contains a project-original FatFs integration example for users who already provide FatFs in a parent project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the precise bundled versus referenced dependency boundary.
 

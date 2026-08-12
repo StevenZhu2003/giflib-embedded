@@ -62,4 +62,12 @@ With the default 48 KiB pool, the balance condition corresponds to at least 16,3
 
 ## Other backends
 
-PRIVATE and LIBC do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. In both cases, the decoder's live payload bound still helps estimate demand, but total system reservation and fragmentation are properties of the selected provider.
+PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder's live payload bound still helps estimate demand, but total system reservation and fragmentation are properties of the selected provider.
+
+## LVGL backend
+
+`GIF_MEM_USE_LVGL` supports LVGL 8.4 and LVGL 9.x. The private bridge calls only `lv_mem_alloc()`, `lv_mem_realloc()`, and `lv_mem_free()` on LVGL 8.4, or `lv_malloc()`, `lv_realloc()`, and `lv_free()` on LVGL 9.x. It does not include or call LVGL core, TLSF, pool, global-state, monitor, or lock internals.
+
+The application owns the LVGL lifecycle: it must call `lv_init()` before `gif_decoder_open()` and must not call `lv_deinit()` while an LVGL-backed decoder or its allocations remain active. The bridge does not initialize, deinitialize, reset, or reserve an LVGL pool. An LVGL allocation failure becomes the existing `GIF_STATUS_OUT_OF_MEMORY` through the common facade. Concurrency follows the application's LVGL locking and threading rules; this library adds no additional lock.
+
+The project does not bundle, modify, or link LVGL by default. A product selecting this backend supplies the LVGL public header and library in its own build. The namespaced `gif_tlsf_*` implementation is compiled only for BUILTIN, so it does not collide with LVGL's allocator or TLSF symbols.

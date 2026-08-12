@@ -19,6 +19,8 @@
 #include "gif_mem_private.h"
 #elif GIF_MEM_BACKEND == GIF_MEM_USE_LIBC
 #include "gif_mem_libc.h"
+#elif GIF_MEM_BACKEND == GIF_MEM_USE_LVGL
+#include "gif_mem_lvgl.h"
 #endif
 
 /**
@@ -50,8 +52,10 @@ void *gif_mem_malloc(size_t size) {
     return gif_mem_builtin_malloc(size);
 #elif GIF_MEM_BACKEND == GIF_MEM_USE_PRIVATE
     return gif_mem_private_malloc(size);
-#else
+#elif GIF_MEM_BACKEND == GIF_MEM_USE_LIBC
     return gif_mem_libc_malloc(size);
+#else
+    return gif_mem_lvgl_malloc(size);
 #endif
 }
 
@@ -85,8 +89,10 @@ void *gif_mem_realloc(void *pointer, size_t new_size) {
     return gif_mem_builtin_realloc(pointer, new_size);
 #elif GIF_MEM_BACKEND == GIF_MEM_USE_PRIVATE
     return gif_mem_private_realloc(pointer, new_size);
-#else
+#elif GIF_MEM_BACKEND == GIF_MEM_USE_LIBC
     return gif_mem_libc_realloc(pointer, new_size);
+#else
+    return gif_mem_lvgl_realloc(pointer, new_size);
 #endif
 }
 
@@ -112,7 +118,9 @@ void gif_mem_free(void *pointer) {
     gif_mem_builtin_free(pointer);
 #elif GIF_MEM_BACKEND == GIF_MEM_USE_PRIVATE
     gif_mem_private_free(pointer);
-#else
+#elif GIF_MEM_BACKEND == GIF_MEM_USE_LIBC
     gif_mem_libc_free(pointer);
+#else
+    gif_mem_lvgl_free(pointer);
 #endif
 }

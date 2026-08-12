@@ -8,7 +8,7 @@ The goal is to let an application select a GIF at run time, open it through the 
 port/gif_porting.c
 ```
 
-When the optional PRIVATE memory backend is selected, the independent second porting point is `port/gif_mem_private.c`. It supplies allocator primitives; it is not a filesystem adapter and does not replace this guide's byte-source contract. The optional LIBC backend needs no porting file: it uses the C runtime heap behind the decoder's private allocation facade.
+When the optional PRIVATE memory backend is selected, the independent second porting point is `port/gif_mem_private.c`. It supplies allocator primitives; it is not a filesystem adapter and does not replace this guide's byte-source contract. The optional LIBC backend needs no porting file. The optional LVGL backend also needs no porting file, but the application must initialize LVGL before opening a decoder. The backend-specific lifecycle and sizing rules are centralized in [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md).
 
 The main tutorial uses a deliberately imaginary storage API. Its names do not belong to this library and no such header exists in the repository. They stand for whatever byte-source operations the target already provides. A complete FatFs implementation appears later as one real-world mapping of the same model.
 

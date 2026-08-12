@@ -58,7 +58,7 @@ The TLSF algorithm was taken from the LVGL-improved baseline and modified only t
 - LVGL's alignment-overflow protection, oversized `realloc()` protection, and pool-size boundary fixes are retained;
 - the project adds safe null/size checks around construction and emits no allocator log output from the library runtime.
 
-`src/memory/gif_mem_builtin.c` and `.h` are project-original MIT-licensed single-pool wrappers. They select, align, initialize, and use the derived TLSF core; they do not copy LVGL's memory manager. `src/memory/gif_mem.c` and `.h` are project-original MIT-licensed backend-neutral semantic wrappers. `src/memory/gif_mem_libc.c` and `.h` are project-original MIT-licensed private wrappers around the C runtime heap; they contain no TLSF, LVGL, or giflib code.
+`src/memory/gif_mem_builtin.c` and `.h` are project-original MIT-licensed single-pool wrappers. They select, align, initialize, and use the derived TLSF core; they do not copy LVGL's memory manager. `src/memory/gif_mem.c` and `.h` are project-original MIT-licensed backend-neutral semantic wrappers. `src/memory/gif_mem_libc.c` and `.h` are project-original MIT-licensed private wrappers around the C runtime heap. `src/memory/gif_mem_lvgl.c` and `.h` are project-original MIT-licensed public-API bridges; they contain no copied LVGL source and do not call LVGL internals.
 
 The complete fixed-source and delta record is retained in [docs/TLSF_LINEAGE.md](docs/TLSF_LINEAGE.md).
 
@@ -72,7 +72,7 @@ The following files were written for this project and are not copied from giflib
 - `port/gif_porting.c` and `port/gif_porting.h` define the project-original platform integration skeleton and its stable open/read/close contract. They contain no source copied from a filesystem, device driver, or storage implementation.
 - `port/gif_mem_private.c` and `port/gif_mem_private.h` are project-original templates for the PRIVATE allocator provider. They intentionally contain no allocator fallback or target implementation.
 - `CMakeLists.txt` defines this project's host, cross-compilation, installation, example, and test builds.
-- `tests/private_header_self_contained.c`, `tests/public_header_self_contained.c`, `tests/core_header_self_contained.c`, `tests/porting_header_self_contained.c`, `tests/memory_header_self_contained.c`, `tests/test_allocator.c`, `tests/test_memory.c`, `tests/test_memory_builtin.c`, `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and `tests/test_regression.c` are this project's portability and regression tests. Their small in-memory GIF byte fixtures were created for these tests.
+- `tests/private_header_self_contained.c`, `tests/public_header_self_contained.c`, `tests/core_header_self_contained.c`, `tests/porting_header_self_contained.c`, `tests/memory_header_self_contained.c`, `tests/test_allocator.c`, `tests/test_memory.c`, `tests/test_memory_builtin.c`, `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, `tests/test_regression.c`, `tests/lvgl_mock.c`, and `tests/lvgl_mock/lvgl.h` are this project's portability and regression tests. Their small in-memory GIF byte fixtures and LVGL allocator mock declarations were created for these tests.
 - `examples/embedded_player/main.c`, `gif_porting.c`, `memory_source.h`, `example_platform.h`, `hosted_platform.c`, and `README.md` form a project-original embedded player reference application. The hosted backend uses only the C standard library and does not incorporate a platform SDK or display-library source.
 - `examples/embedded_player/assets/device_boot.gif` is a project-original 128 x 64 device-status animation created for this repository; it is not downloaded, copied, or adapted from external media and contains no external artwork, icon, logo, font, or brand asset. Its frames were generated locally from project-original geometric shapes and colors. `demo_animation.c` and `demo_animation.h` are its mechanically generated embedded C representation and declarations.
 - `README.md`, `docs/PORTING_GUIDE.md`, `docs/TLSF_LINEAGE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`, `LICENSE`, and this notice were written or selected for this repository, except where the TLSF lineage record quotes third-party provenance and license facts.
@@ -94,6 +94,12 @@ Pillow is an authoring tool only, not a distributed project component. The offic
 The Porting Guide refers to the FatFs API and contains project-original adapter code showing how `gif_porting_open()`, `gif_porting_read()`, and `gif_porting_close()` can call `f_open()`, `f_read()`, and `f_close()`. This repository does not contain a FatFs source file, header, binary, sample project, or copied FatFs implementation code. Its library, tests, and embedded player example do not link to FatFs.
 
 FatFs is therefore an optional external integration rather than a bundled third-party component of this repository. Users who supply FatFs in a parent project are responsible for the license and attribution requirements of the specific FatFs version they redistribute. FatFs is developed by ChaN and is distributed under its own permissive terms. The upstream project and official license note are available at <https://elm-chan.org/fsw/ff/> and <https://elm-chan.org/fsw/ff/doc/appnote.html#license>.
+
+### LVGL
+
+The optional `GIF_MEM_USE_LVGL` backend calls only LVGL's public allocator API. This repository does not bundle, modify, or compile LVGL by default, and `gif_mem_lvgl.c` contains no copied LVGL implementation source. A product that selects this backend supplies and links its own LVGL 8.4 or 9.x library.
+
+LVGL is therefore an optional external integration. Users who distribute LVGL with their product are responsible for the license and attribution requirements of their selected LVGL release. LVGL's upstream repository and license are available at <https://github.com/lvgl/lvgl> and <https://github.com/lvgl/lvgl/blob/master/LICENCE.txt>.
 
 ## No endorsement
 
