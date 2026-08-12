@@ -1,6 +1,6 @@
 # TLSF lineage and migration record
 
-`src/memory/gif_tlsf.c` and `src/memory/gif_tlsf.h` are derived from the
+`vendor/tlsf/gif_tlsf.c` and `vendor/tlsf/gif_tlsf.h` are derived from the
 Two-Level Segregated Fit allocator written by Matthew Conte. They are licensed
 under the BSD 3-Clause License, not the repository's MIT license. Their full
 notice is retained in both derived source files and summarized in

@@ -29,7 +29,7 @@ set(GIFLIB_MEMORY_COMMON_SOURCES
 
 set(GIFLIB_MEMORY_BUILTIN_SOURCES
     src/memory/gif_mem_builtin.c
-    src/memory/gif_tlsf.c
+    vendor/tlsf/gif_tlsf.c
 )
 
 set(GIFLIB_MEMORY_PRIVATE_SOURCES
@@ -90,6 +90,7 @@ target_include_directories(giflib_embedded
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
 )
 giflib_apply_common_options(giflib_embedded)
@@ -118,6 +119,7 @@ if(GIFLIB_BUILD_TESTS)
     target_include_directories(giflib_regression_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_apply_common_options(giflib_regression_tests)
@@ -139,6 +141,7 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
@@ -167,6 +170,7 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
@@ -178,6 +182,7 @@ if(GIFLIB_BUILD_TESTS)
     )
     target_include_directories(giflib_private_header_check PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_apply_common_options(giflib_private_header_check)
@@ -214,6 +219,7 @@ if(GIFLIB_BUILD_TESTS)
     target_include_directories(gif_memory_header_check PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
     )
     giflib_apply_common_options(gif_memory_header_check)
 
@@ -238,6 +244,7 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )

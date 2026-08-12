@@ -5,11 +5,14 @@ systems. It retains giflib's mature parser and LZW decoder while placing fixed
 public, private, and porting boundaries between the decoder and
 platform-specific storage, display, timing, and operating-system services.
 
-> **Upstream attribution:** This project incorporates and modifies a
-> substantial amount of source code from giflib. The original authors retain
-> copyright in that code. See
-> [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact file boundary,
-> upstream changes, omitted components, and project-original files.
+> **Upstream attribution:** This project incorporates and modifies substantial
+> source code from giflib and the TLSF allocator. The original authors retain
+> copyright in their respective code. giflib-derived sources retain their MIT
+> license terms, while TLSF-derived sources retain Matthew Conte's BSD-3-Clause
+> notice; the LVGL integration lineage is also recorded. See
+> [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact file
+> boundaries, upstream revisions and changes, omitted components, and
+> project-original files.
 
 The project is derived from giflib 6.1.3 and is currently under active
 development. The low-level `gif_lib.h` interface is retained internally during
@@ -42,7 +45,7 @@ include/gif_decoder.h + src/gif_decoder.c     fixed public API
     |              |
     |         src/memory/gif_mem.c ---------- private allocator facade
     |              |
-    |         BUILTIN: fixed TLSF pool / PRIVATE: port/gif_mem_private.c
+    |         BUILTIN: vendor/tlsf fixed pool / PRIVATE: port/gif_mem_private.c
     |
 src/gif_decoder_core.h + .c ---------------- hidden implementation
     |
@@ -154,6 +157,80 @@ it owns one explicitly aligned 48 KiB TLSF pool, never expands it, never falls
 back to a C library heap, and never stores the caller's framebuffer. Its
 dynamic decoder memory consumption cannot exceed `GIF_MEM_POOL_SIZE`.
 
+### RAM sizing and the framebuffer-balance recommendation
+
+The caller-owned RGB888/BGR888 framebuffer requires:
+
+```text
+F = canvas_width × canvas_height × 3 bytes
+```
+
+The public streaming decoder does not retain decoded frames or `SavedImages`.
+Its maximum live allocation payload, for a supported stream with both a global
+and local 256-entry palette, is bounded by:
+
+```text
+D_payload(W) = sizeof(GifDecoder)
+             + sizeof(GifFileType)
+             + sizeof(GifFilePrivateType)
+             + 2 × (sizeof(ColorMapObject) + 256 × sizeof(GifColorType))
+             + W × sizeof(GifPixelType)
+```
+
+`W` is the maximum image width the application intends to decode; it is at
+most the GIF canvas width. The two palette terms cover the point at which a
+local colour table is active while the global table remains allocated. The row
+buffer is one palette-index byte per image pixel, not a full RGB row.
+
+For the verified 32-bit ARM build, this is approximately:
+
+```text
+D_payload(W) = 26,584 + W bytes
+```
+
+This payload formula excludes TLSF control/allocation metadata and a project
+safety margin. Select the fixed pool with:
+
+```text
+GIF_MEM_POOL_SIZE >= D_payload(W)
+                   + TLSF_control_and_allocation_metadata
+                   + safety_margin
+```
+
+On the default 48 KiB pool in the current 32-bit ARM configuration, TLSF
+control metadata is approximately 1,340 bytes; per-allocation metadata,
+alignment rounding, and the pool sentinel must also be allowed for. A 4 KiB
+or larger application-specific safety margin is a sensible starting point,
+then validate with the application's largest intended GIFs and fragmentation
+workload.
+
+For static-RAM planning, distinguish this instantaneous payload from the
+reserved pool. BUILTIN reserves exactly:
+
+```text
+P = GIF_MEM_POOL_SIZE
+R_library = P
+R_decoder_plus_framebuffer = P + F
+```
+
+Therefore the recommended balance condition is:
+
+```text
+F >= P
+```
+
+It means the visible image storage is at least as large as the complete
+decoder-owned static allocation. It is a RAM-budget recommendation, not a
+functional requirement: a 128 × 64 RGB888 framebuffer is 24 KiB and can still
+decode correctly with the default 48 KiB pool. Conversely, merely checking
+`F >= D_payload(W)` is insufficient for static memory accounting when the
+configured pool `P` is larger than the current live payload.
+
+With the default 48 KiB pool, `F >= P` corresponds to at least 16,384 RGB888
+pixels. For example, 128 × 64 does not meet this balance target, whereas
+240 × 320 does. Small-display products can instead choose a smaller pool after
+measuring their real maximum width, palette use, failure paths, and margin.
+
 For a CMake build, choose the backend at configuration time:
 
 ```sh
@@ -234,9 +311,11 @@ are not installed.
 ## Repository layout
 
 - `include/`: the sole application-facing API and centralized configuration.
-- `src/`: fixed facade, hidden decoder/compositor, and private memory subsystem.
+- `src/`: fixed facade, hidden decoder/compositor, and project-original memory
+  wrappers.
 - `port/`: storage port plus the PRIVATE allocator template when selected.
-- `vendor/giflib/`: upstream-derived parser, LZW implementation, and license.
+- `vendor/`: upstream-derived or modified third-party libraries, including the
+  giflib parser/LZW code and the TLSF allocator.
 - `tests/`: host-side regression tests and memory-backed test port.
 - `examples/`: complete applications with their own porting implementation.
 - `docs/`: the detailed porting guide and source documentation convention.

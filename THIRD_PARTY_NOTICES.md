@@ -85,7 +85,7 @@ were modified for the port.
 ## TLSF allocator lineage
 
 The BUILTIN memory backend contains a modified TLSF 3.1 implementation in
-`src/memory/gif_tlsf.c` and `src/memory/gif_tlsf.h`. These files are derived
+`vendor/tlsf/gif_tlsf.c` and `vendor/tlsf/gif_tlsf.h`. These files are derived
 works, not project-original files, and retain Matthew Conte's full BSD-3-Clause
 copyright and license notice in `gif_tlsf.h`.
 
