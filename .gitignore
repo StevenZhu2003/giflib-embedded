@@ -2,6 +2,7 @@
 /build/
 /build-*/
 /cmake-build-*/
+/_TEMP/
 CMakeCache.txt
 CMakeFiles/
 CTestTestfile.cmake
