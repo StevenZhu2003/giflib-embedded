@@ -6,9 +6,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright (C) Eric S. Raymond <esr@thyrsus.com>
 
-#include <stdlib.h>
 #include <string.h>
 
+#include "gif_mem.h"
 #include "gif_lib.h"
 #include "gif_lib_private.h"
 
@@ -46,15 +46,15 @@ ColorMapObject *GifMakeMapObject(int ColorCount, const GifColorType *ColorMap) {
 		return ((ColorMapObject *)NULL);
 	}
 
-	Object = (ColorMapObject *)malloc(sizeof(ColorMapObject));
+	Object = (ColorMapObject *)gif_mem_malloc(sizeof(ColorMapObject));
 	if (Object == (ColorMapObject *)NULL) {
 		return ((ColorMapObject *)NULL);
 	}
 
 	Object->Colors =
-	    (GifColorType *)calloc(ColorCount, sizeof(GifColorType));
+	    (GifColorType *)gif_mem_calloc(ColorCount, sizeof(GifColorType));
 	if (Object->Colors == (GifColorType *)NULL) {
-		free(Object);
+		gif_mem_free(Object);
 		return ((ColorMapObject *)NULL);
 	}
 
@@ -75,8 +75,8 @@ ColorMapObject *GifMakeMapObject(int ColorCount, const GifColorType *ColorMap) {
 *******************************************************************************/
 void GifFreeMapObject(ColorMapObject *Object) {
 	if (Object != NULL) {
-		(void)free(Object->Colors);
-		(void)free(Object);
+		(void)gif_mem_free(Object->Colors);
+		(void)gif_mem_free(Object);
 	}
 }
 
@@ -90,9 +90,9 @@ int GifAddExtensionBlock(int *ExtensionBlockCount,
 
 	if (*ExtensionBlocks == NULL) {
 		*ExtensionBlocks =
-		    (ExtensionBlock *)malloc(sizeof(ExtensionBlock));
+		    (ExtensionBlock *)gif_mem_malloc(sizeof(ExtensionBlock));
 	} else {
-		ExtensionBlock *ep_new = (ExtensionBlock *)reallocarray(
+		ExtensionBlock *ep_new = (ExtensionBlock *)gif_mem_realloc_array(
 		    *ExtensionBlocks, (*ExtensionBlockCount + 1),
 		    sizeof(ExtensionBlock));
 		if (ep_new == NULL) {
@@ -109,7 +109,7 @@ int GifAddExtensionBlock(int *ExtensionBlockCount,
 
 	ep->Function = Function;
 	ep->ByteCount = Len;
-	ep->Bytes = (GifByteType *)malloc(ep->ByteCount);
+	ep->Bytes = (GifByteType *)gif_mem_malloc(ep->ByteCount);
 	if (ep->Bytes == NULL) {
 		return (GIF_ERROR);
 	}
@@ -131,9 +131,9 @@ void GifFreeExtensions(int *ExtensionBlockCount,
 
 	for (ep = *ExtensionBlocks;
 	     ep < (*ExtensionBlocks + *ExtensionBlockCount); ep++) {
-		(void)free((char *)ep->Bytes);
+		(void)gif_mem_free((char *)ep->Bytes);
 	}
-	(void)free((char *)*ExtensionBlocks);
+	(void)gif_mem_free((char *)*ExtensionBlocks);
 	*ExtensionBlocks = NULL;
 	*ExtensionBlockCount = 0;
 }
@@ -164,7 +164,7 @@ void FreeLastSavedImage(GifFileType *GifFile) {
 
 	/* Deallocate the image data */
 	if (sp->RasterBits != NULL) {
-		free((char *)sp->RasterBits);
+		gif_mem_free((char *)sp->RasterBits);
 	}
 
 	/* Deallocate any extensions */
@@ -186,9 +186,9 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
                               const SavedImage *CopyFrom) {
 	// cppcheck-suppress ctunullpointer
 	if (GifFile->SavedImages == NULL) {
-		GifFile->SavedImages = (SavedImage *)malloc(sizeof(SavedImage));
+		GifFile->SavedImages = (SavedImage *)gif_mem_malloc(sizeof(SavedImage));
 	} else {
-		SavedImage *newSavedImages = (SavedImage *)reallocarray(
+		SavedImage *newSavedImages = (SavedImage *)gif_mem_realloc_array(
 		    GifFile->SavedImages, (GifFile->ImageCount + 1),
 		    sizeof(SavedImage));
 		if (newSavedImages == NULL) {
@@ -230,7 +230,7 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
 			}
 
 			/* next, the raster */
-			sp->RasterBits = (unsigned char *)reallocarray(
+			sp->RasterBits = (unsigned char *)gif_mem_realloc_array(
 			    NULL,
 			    (CopyFrom->ImageDesc.Height *
 			     CopyFrom->ImageDesc.Width),
@@ -248,7 +248,7 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
 			if (CopyFrom->ExtensionBlocks != NULL) {
 				int k;
 				sp->ExtensionBlocks =
-				    (ExtensionBlock *)calloc(
+				    (ExtensionBlock *)gif_mem_calloc(
 				        CopyFrom->ExtensionBlockCount,
 				        sizeof(ExtensionBlock));
 				if (sp->ExtensionBlocks == NULL) {
@@ -265,7 +265,7 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
 					dst->ByteCount = src->ByteCount;
 					if (src->ByteCount > 0) {
 						dst->Bytes =
-						    (GifByteType *)malloc(
+						    (GifByteType *)gif_mem_malloc(
 						        src->ByteCount);
 						if (dst->Bytes == NULL) {
 							FreeLastSavedImage(
@@ -299,13 +299,13 @@ void GifFreeSavedImages(GifFileType *GifFile) {
 		}
 
 		if (sp->RasterBits != NULL) {
-			free((char *)sp->RasterBits);
+			gif_mem_free((char *)sp->RasterBits);
 		}
 
 		GifFreeExtensions(&sp->ExtensionBlockCount,
 		                  &sp->ExtensionBlocks);
 	}
-	free((char *)GifFile->SavedImages);
+	gif_mem_free((char *)GifFile->SavedImages);
 	GifFile->SavedImages = NULL;
 }
 

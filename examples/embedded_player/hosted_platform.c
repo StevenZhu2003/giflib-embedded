@@ -55,7 +55,13 @@ int example_platform_display_present_rgb888(const uint8_t *pixels,
         return -1;
     }
 
+#if defined(_MSC_VER)
+    if (fopen_s(&output, filename, "wb") != 0) {
+        output = NULL;
+    }
+#else
     output = fopen(filename, "wb");
+#endif
     if (output == NULL) {
         return -1;
     }

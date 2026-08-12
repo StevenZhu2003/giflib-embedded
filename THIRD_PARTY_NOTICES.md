@@ -41,8 +41,6 @@ code and must not be treated as project-original work:
   declarations.
 - `vendor/giflib/gif_lib_private.h` contains giflib's private decoder/LZW state
   and internal constants.
-- `vendor/giflib/openbsd-reallocarray.c` is the reallocarray compatibility
-  implementation shipped by giflib and attributed upstream to Otto Moerbeek.
 
 ### Changes made to the giflib-derived code
 
@@ -71,17 +69,61 @@ correctness work:
   a signed/unsigned compiler warning.
 - The malformed SPDX copyright field in `vendor/giflib/gif_err.c` was corrected
   without changing the credited author.
+- All giflib allocation sites now use the private `gif_mem_*` facade. The
+  former OpenBSD `reallocarray` compatibility translation unit is not retained:
+  its overflow and zero-size behavior is implemented once by
+  `gif_mem_realloc_array()` before dispatch to the selected backend. As in the
+  retained implementation, zero-size reallocarray returns `NULL` without
+  releasing a non-null original allocation.
 - Existing comments in giflib-derived code are intentionally retained in their
   upstream form. The project's Doxygen-compatible style applies to
   project-original files and to new comments that specifically document port
   changes; it is not used to rewrite upstream commentary for appearance.
-- The retained `vendor/giflib/openbsd-reallocarray.c` variant removes `errno` and
-  `sys/types.h` dependencies for the embedded core. It still performs the
-  upstream overflow check and returns `NULL` for overflow or zero-size input,
-  but it does not set `errno`.
-
 The resulting files remain derived works of giflib even where individual lines
 were modified for the port.
+
+## TLSF allocator lineage
+
+The BUILTIN memory backend contains a modified TLSF 3.1 implementation in
+`src/memory/gif_tlsf.c` and `src/memory/gif_tlsf.h`. These files are derived
+works, not project-original files, and retain Matthew Conte's full BSD-3-Clause
+copyright and license notice in `gif_tlsf.h`.
+
+- Original upstream: Matthew Conte's TLSF repository,
+  <https://github.com/mattconte/tlsf>, commit
+  `deff9ab509341f264addbd3c8ada533678591905` (`Update tlsf.c`, 2020-03-29).
+- Adopted implementation baseline: LVGL's improved TLSF core from
+  <https://github.com/lvgl/lvgl>, commit
+  `940c86ae3ade38de8c28b9096a87848d82c6ac36` (2026-08-12),
+  `src/stdlib/builtin/lv_tlsf.c` and `lv_tlsf.h`.
+- LVGL attribution is lineage, not authorship: the allocator remains derived
+  from Matthew Conte's TLSF and is not represented as an original LVGL work.
+
+### Derived TLSF changes in this repository
+
+The TLSF algorithm was taken from the LVGL-improved baseline and modified only
+to fit this library's fixed-pool boundary:
+
+- all exported TLSF identifiers are renamed to `gif_tlsf_*`, preventing symbol
+  collisions when an application also links LVGL;
+- LVGL headers, configuration, logging, assertions, string wrappers, global
+  state, linked lists, OS/mutex integration, monitoring, and dynamic multi-pool
+  management are removed;
+- the LVGL bounded-pool first-level-index optimization is retained and bound to
+  `GIF_MEM_POOL_SIZE`, reducing allocator metadata for the configured fixed
+  pool;
+- LVGL's alignment-overflow protection, oversized `realloc()` protection, and
+  pool-size boundary fixes are retained;
+- the project adds safe null/size checks around construction and emits no
+  allocator log output from the library runtime.
+
+`src/memory/gif_mem_builtin.c` and `.h` are project-original MIT-licensed
+single-pool wrappers. They select, align, initialize, and use the derived TLSF
+core; they do not copy LVGL's memory manager. `src/memory/gif_mem.c` and `.h`
+are project-original MIT-licensed backend-neutral semantic wrappers.
+
+The complete fixed-source and delta record is retained in
+[docs/TLSF_LINEAGE.md](docs/TLSF_LINEAGE.md).
 
 ## Code written for giflib-embedded
 
@@ -90,7 +132,8 @@ giflib:
 
 - `include/gif_decoder.h` defines the opaque, platform-independent public API,
   source-selection config, output-surface types, frame information, and public
-  status model.
+  status model. `include/gif_config.h` is the project-original centralized
+  compile-time configuration entry point.
 - `src/gif_decoder.c` implements the fixed application facade and dispatch
   between the platform port and hidden decoder. `src/gif_decoder_core.c` and
   `src/gif_decoder_core.h` implement the private short-read bridge, error
@@ -100,15 +143,20 @@ giflib:
   platform integration skeleton and its stable open/read/close contract. They
   contain no source copied from a filesystem, device driver, or storage
   implementation.
+- `port/gif_mem_private.c` and `port/gif_mem_private.h` are project-original
+  templates for the PRIVATE allocator provider. They intentionally contain no
+  allocator fallback or target implementation.
 - `CMakeLists.txt` defines this project's host, cross-compilation,
   installation, example, and test builds.
 - `tests/private_header_self_contained.c`,
   `tests/public_header_self_contained.c`,
   `tests/core_header_self_contained.c`,
-  `tests/porting_header_self_contained.c`, `tests/test_allocator.c`,
-  `tests/test_decoder.c`, `tests/test_porting.c`, `tests/test_porting.h`, and
-  `tests/test_regression.c` are this project's portability and regression
-  tests. Their small in-memory GIF byte fixtures were created for these tests.
+  `tests/porting_header_self_contained.c`,
+  `tests/memory_header_self_contained.c`, `tests/test_allocator.c`,
+  `tests/test_memory.c`, `tests/test_memory_builtin.c`, `tests/test_decoder.c`,
+  `tests/test_porting.c`, `tests/test_porting.h`, and `tests/test_regression.c`
+  are this project's portability and regression tests. Their small in-memory
+  GIF byte fixtures were created for these tests.
 - `examples/embedded_player/main.c`, `gif_porting.c`, `memory_source.h`,
   `example_platform.h`, `hosted_platform.c`, and `README.md` form a
   project-original embedded player reference application. The hosted backend
@@ -121,8 +169,10 @@ giflib:
   from project-original geometric shapes and colors. `demo_animation.c` and
   `demo_animation.h` are its mechanically generated embedded C representation
   and declarations.
-- `README.md`, `docs/PORTING_GUIDE.md`, `docs/COMMENTING_STYLE.md`, `.gitignore`,
-  `LICENSE`, and this notice were written or selected for this repository.
+- `README.md`, `docs/PORTING_GUIDE.md`, `docs/TLSF_LINEAGE.md`,
+  `docs/COMMENTING_STYLE.md`, `.gitignore`, `LICENSE`, and this notice were
+  written or selected for this repository, except where the TLSF lineage record
+  quotes third-party provenance and license facts.
 
 Project-original work is Copyright (c) 2026 Steven Zhu and is licensed under
 the MIT License in [LICENSE](LICENSE).

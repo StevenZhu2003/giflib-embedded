@@ -24,6 +24,8 @@ the migration; it is not intended to be the final application-facing API.
 - Composite frames into a framebuffer owned by the caller.
 - Keep display, cache management, and frame delays in the application, and
   storage access exclusively in `port/gif_porting.c`.
+- Make decoder-owned dynamic memory explicit, bounded, and independent of the
+  C library heap by default.
 - Preserve the proven giflib parser and LZW implementation with minimal,
   documented changes.
 
@@ -34,7 +36,13 @@ include/gif_decoder.h + src/gif_decoder.c     fixed public API
     |
     +---- port/gif_porting.h ---------------- fixed port contract
     |              |
-    |         port/gif_porting.c ------------ only editable port file
+    |         port/gif_porting.c ------------ storage port implementation
+    |
+    +---- include/gif_config.h -------------- centralized build configuration
+    |              |
+    |         src/memory/gif_mem.c ---------- private allocator facade
+    |              |
+    |         BUILTIN: fixed TLSF pool / PRIVATE: port/gif_mem_private.c
     |
 src/gif_decoder_core.h + .c ---------------- hidden implementation
     |
@@ -62,6 +70,9 @@ Completed:
 - transparent palette pixels that preserve the existing composited canvas;
 - public animation timing metadata in milliseconds without decoder-side waits;
 - fixed public, hidden-core, and single-file platform-porting boundaries.
+- a pluggable private allocator facade with a default 48 KiB fixed TLSF pool;
+- no direct decoder or retained-giflib dependency on `malloc`, `calloc`,
+  `realloc`, or `free`.
 
 The next stage will add disposal mode 2. Later stages will add RGBA output,
 disposal mode 3, and interlace handling. Allocator abstraction and optional
@@ -135,13 +146,39 @@ The bundled animation was created specifically for this repository and was not
 downloaded or adapted from external media; its detailed provenance and license
 are documented in the example README and `THIRD_PARTY_NOTICES.md`.
 
+## Memory configuration
+
+`include/gif_config.h` is the central configuration entry point for this and
+future library-wide compile-time options. The default is the BUILTIN backend:
+it owns one explicitly aligned 48 KiB TLSF pool, never expands it, never falls
+back to a C library heap, and never stores the caller's framebuffer. Its
+dynamic decoder memory consumption cannot exceed `GIF_MEM_POOL_SIZE`.
+
+For a CMake build, choose the backend at configuration time:
+
+```sh
+cmake -S . -B build -DGIF_MEM_BACKEND=BUILTIN
+cmake -S . -B build-private -DGIF_MEM_BACKEND=PRIVATE
+```
+
+`PRIVATE` compiles no TLSF code. It makes `port/gif_mem_private.c` the second
+porting point; the application supplies only `gif_mem_private_malloc()`,
+`gif_mem_private_realloc()`, and `gif_mem_private_free()`. The library keeps
+zero-size behavior, overflow checking, clearing, and reallocarray semantics in
+its private facade. In particular, `realloc(p, 0)` releases `p`, while the
+retained giflib-compatible `realloc_array(p, 0, n)` returns `NULL` and leaves
+`p` unchanged. The storage port and private allocator are independent.
+
+Neither backend is internally synchronized. Applications must serialize
+concurrent decoder activity, or make the selected PRIVATE provider safe.
+
 ## Dependencies
 
-The library requires a C99 compiler and the basic C runtime facilities used by
-the trimmed giflib core, including `malloc`, `calloc`, `realloc`, `free`, and
-memory/string operations. The fixed facade and hidden core do not open files
-and have no direct filesystem dependency; only the user-supplied
-`port/gif_porting.c` may do so.
+The library requires C99 and basic memory/string operations such as `memset`
+and `memcpy`. The default BUILTIN configuration has no C-library heap
+dependency. The fixed facade and hidden core do not open files and have no
+direct filesystem dependency; only the user-supplied `port/gif_porting.c` may
+perform storage I/O.
 
 FatFs is not bundled, linked, or required by this repository. The Porting Guide
 contains a project-original FatFs integration example for users who already
@@ -191,13 +228,14 @@ Implement its open/read/close bodies for the target before decoding. No other
 library or application file needs platform storage glue.
 
 `cmake --install build --prefix <destination>` installs only the static library
-and the public `gif_decoder.h` header; private giflib headers are not installed.
+plus `gif_decoder.h` and `gif_config.h`; private giflib and allocator headers
+are not installed.
 
 ## Repository layout
 
-- `include/`: the sole application-facing header.
-- `src/`: fixed public facade plus hidden decoder/compositor implementation.
-- `port/`: stable port contract and the only target-editable source file.
+- `include/`: the sole application-facing API and centralized configuration.
+- `src/`: fixed facade, hidden decoder/compositor, and private memory subsystem.
+- `port/`: storage port plus the PRIVATE allocator template when selected.
 - `vendor/giflib/`: upstream-derived parser, LZW implementation, and license.
 - `tests/`: host-side regression tests and memory-backed test port.
 - `examples/`: complete applications with their own porting implementation.
@@ -222,7 +260,9 @@ portability and correctness fixes:
 - made the private header self-contained for fixed-width integer macros;
 - made image pixel-count multiplication safe on 32-bit targets;
 - retained the specific logical-screen read or allocation error from
-  `DGifOpen()`.
+  `DGifOpen()`;
+- routed all retained giflib allocation sites through the project-private
+  allocator facade, retaining `reallocarray` overflow and zero-size semantics.
 
 The encoder, command-line utilities, file-opening helpers, and upstream build
 system are not included.
@@ -231,5 +271,7 @@ system are not included.
 
 The repository is distributed under the MIT License; see [LICENSE](LICENSE).
 Portions derived from giflib retain their upstream copyright and license
-notices. See [the retained giflib license](vendor/giflib/COPYING) and
+notices. The BUILTIN TLSF implementation retains Matthew Conte's BSD-3-Clause
+notice and records its LVGL modification lineage. See
+[the retained giflib license](vendor/giflib/COPYING) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.

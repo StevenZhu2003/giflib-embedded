@@ -364,28 +364,30 @@ static void test_invalid_arguments(void) {
                  "input/output error") == 0);
 }
 
-/** @brief Map a giflib allocation failure and verify complete cleanup. */
+/** @brief Exercise every open-path allocation failure and verify cleanup. */
 static void test_oom_mapping(void) {
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
     size_t allocations_before = giflib_test_outstanding_allocations();
+    size_t failure_index;
     GifStatus status;
 
-    memory_source_init(&source, gif_header_with_palette,
-                       sizeof(gif_header_with_palette));
+    for (failure_index = 0U; failure_index < 5U; failure_index++) {
+        memory_source_init(&source, gif_header_with_palette,
+                           sizeof(gif_header_with_palette));
+        decoder = NULL;
 
-    /* Allow the facade and GifFile allocations, then fail giflib private
-     * state allocation so the mapping covers an underlying giflib OOM. */
-    giflib_test_fail_allocation_after(2);
-    status = open_source(&source, &decoder, &stream);
-    giflib_test_disable_allocation_failure();
+        giflib_test_fail_allocation_after(failure_index);
+        status = open_source(&source, &decoder, &stream);
+        giflib_test_disable_allocation_failure();
 
-    CHECK(status == GIF_STATUS_OUT_OF_MEMORY);
-    CHECK(decoder == NULL);
-    CHECK(source.close_calls == 1);
-    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+        CHECK(status == GIF_STATUS_OUT_OF_MEMORY);
+        CHECK(decoder == NULL);
+        CHECK(source.close_calls == 1U);
+        CHECK(giflib_test_outstanding_allocations() == allocations_before);
+    }
 #endif
 }
 

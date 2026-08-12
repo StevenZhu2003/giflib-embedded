@@ -5,12 +5,17 @@ supply sequential bytes. It assumes familiarity with embedded C, but no
 knowledge of giflib internals.
 
 The goal is to let an application select a GIF at run time, open it through the
-public decoder API, and decode each frame into a caller-owned framebuffer. A
-normal port changes only:
+public decoder API, and decode each frame into a caller-owned framebuffer. With
+the default BUILTIN memory backend, a normal storage port changes only:
 
 ```text
 port/gif_porting.c
 ```
+
+When the optional PRIVATE memory backend is selected, the independent second
+porting point is `port/gif_mem_private.c`. It supplies allocator primitives;
+it is not a filesystem adapter and does not replace this guide's byte-source
+contract.
 
 The main tutorial uses a deliberately imaginary storage API. Its names do not
 belong to this library and no such header exists in the repository. They stand
@@ -870,7 +875,38 @@ The repository host tests use a separate memory-backed test port to verify the
 same open/read/close contract, including short reads, EOF, injected errors, and
 close ownership.
 
-## 10. Diagnose common failures
+## 10. Configure decoder memory
+
+Memory configuration is deliberately separate from byte-source porting.
+`include/gif_config.h` is the centralized compile-time configuration header;
+CMake selects the matching source set with `-DGIF_MEM_BACKEND=BUILTIN` or
+`-DGIF_MEM_BACKEND=PRIVATE`.
+
+BUILTIN is the default. It owns one fixed, explicitly aligned TLSF pool sized
+by `GIF_MEM_POOL_SIZE` (48 KiB by default). It never uses a libc heap, expands
+the pool, or includes the application framebuffer. If the pool cannot satisfy
+an allocation, decoder operations report `GIF_STATUS_OUT_OF_MEMORY`. The
+application must serialize simultaneous decoder activity because this phase
+does not add locking.
+
+PRIVATE compiles no TLSF code. Implement only these non-zero primitives in
+`port/gif_mem_private.c`:
+
+```c
+void *gif_mem_private_malloc(size_t size);
+void *gif_mem_private_realloc(void *pointer, size_t new_size);
+void gif_mem_private_free(void *pointer);
+```
+
+The private implementation must return `NULL` on allocation failure and keep
+the original allocation valid when `realloc` fails. All three functions must
+use one allocator domain. Do not implement `calloc` or `reallocarray`: the
+library facade performs clearing, zero-size handling, and overflow checks
+before it calls these primitives. `realloc(p, 0)` releases `p`, whereas the
+retained giflib-compatible `realloc_array(p, 0, n)` returns `NULL` without
+changing `p`. Thread safety remains the application's responsibility.
+
+## 11. Diagnose common failures
 
 ### Image descriptor reads fail after the animation runs for a while
 
@@ -900,7 +936,7 @@ Move those includes and calls back into `port/gif_porting.c`. The public config
 carries only the resource identifier. The application selects a resource but
 does not open or read it for the decoder.
 
-## 11. Port acceptance checklist
+## 12. Port acceptance checklist
 
 A port is complete when all statements below are true:
 
@@ -908,6 +944,8 @@ A port is complete when all statements below are true:
   run time;
 - only `port/gif_porting.c` contains target byte-source integration;
 - `port/gif_porting.h` remains unchanged and platform-neutral;
+- when PRIVATE is selected, allocator integration is isolated to
+  `port/gif_mem_private.c` and does not appear in the storage port;
 - public and hidden decoder files remain unchanged;
 - open returns a non-`NULL` handle only after complete success;
 - read obeys the byte-count and terminal-status rules;

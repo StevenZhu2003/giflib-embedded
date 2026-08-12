@@ -12,9 +12,9 @@ two modules will be linked.  Preserve this property!
 
 #include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
+#include "gif_mem.h"
 #include "gif_lib.h"
 #include "gif_lib_private.h"
 
@@ -53,7 +53,7 @@ GifFileType *DGifOpen(void *userData, InputFunc readFunc, int *Error) {
         return NULL;
     }
 
-    GifFile = (GifFileType *)malloc(sizeof(GifFileType));
+    GifFile = (GifFileType *)gif_mem_malloc(sizeof(GifFileType));
     if (GifFile == NULL) {
         if (Error != NULL) {
             *Error = D_GIF_ERR_NOT_ENOUGH_MEM;
@@ -67,12 +67,12 @@ GifFileType *DGifOpen(void *userData, InputFunc readFunc, int *Error) {
     GifFile->SavedImages = NULL;
     GifFile->SColorMap = NULL;
 
-    Private = (GifFilePrivateType *)calloc(1, sizeof(GifFilePrivateType));
+    Private = (GifFilePrivateType *)gif_mem_calloc(1, sizeof(GifFilePrivateType));
     if (Private == NULL) {
         if (Error != NULL) {
             *Error = D_GIF_ERR_NOT_ENOUGH_MEM;
         }
-        free((char *)GifFile);
+        gif_mem_free((char *)GifFile);
         return NULL;
     }
 
@@ -89,8 +89,8 @@ GifFileType *DGifOpen(void *userData, InputFunc readFunc, int *Error) {
         if (Error != NULL) {
             *Error = D_GIF_ERR_READ_FAILED;
         }
-        free((char *)Private);
-        free((char *)GifFile);
+        gif_mem_free((char *)Private);
+        gif_mem_free((char *)GifFile);
         return NULL;
     }
 
@@ -100,8 +100,8 @@ GifFileType *DGifOpen(void *userData, InputFunc readFunc, int *Error) {
         if (Error != NULL) {
             *Error = D_GIF_ERR_NOT_GIF_FILE;
         }
-        free((char *)Private);
-        free((char *)GifFile);
+        gif_mem_free((char *)Private);
+        gif_mem_free((char *)GifFile);
         return NULL;
     }
 
@@ -111,8 +111,8 @@ GifFileType *DGifOpen(void *userData, InputFunc readFunc, int *Error) {
         int ScreenError = GifFile->Error;
 
         GifFreeMapObject(GifFile->SColorMap);
-        free((char *)Private);
-        free((char *)GifFile);
+        gif_mem_free((char *)Private);
+        gif_mem_free((char *)GifFile);
         if (Error != NULL) {
             *Error = ScreenError != D_GIF_SUCCEEDED
                          ? ScreenError
@@ -339,7 +339,7 @@ int DGifGetImageDesc(GifFileType *GifFile) {
 	}
 
 	if (GifFile->SavedImages) {
-		SavedImage *new_saved_images = (SavedImage *)reallocarray(
+		SavedImage *new_saved_images = (SavedImage *)gif_mem_realloc_array(
 		    GifFile->SavedImages, (GifFile->ImageCount + 1),
 		    sizeof(SavedImage));
 		if (new_saved_images == NULL) {
@@ -349,7 +349,7 @@ int DGifGetImageDesc(GifFileType *GifFile) {
 		GifFile->SavedImages = new_saved_images;
 	} else {
 		if ((GifFile->SavedImages =
-		         (SavedImage *)malloc(sizeof(SavedImage))) == NULL) {
+		         (SavedImage *)gif_mem_malloc(sizeof(SavedImage))) == NULL) {
 			GifFile->Error = D_GIF_ERR_NOT_ENOUGH_MEM;
 			return GIF_ERROR;
 		}
@@ -609,13 +609,13 @@ int DGifCloseFile(GifFileType *GifFile, int *ErrorCode) {
 		if (ErrorCode != NULL) {
 			*ErrorCode = D_GIF_ERR_NOT_READABLE;
 		}
-		free((char *)GifFile->Private);
-		free(GifFile);
+		gif_mem_free((char *)GifFile->Private);
+		gif_mem_free(GifFile);
 		return GIF_ERROR;
 	}
 
-	free((char *)GifFile->Private);
-	free(GifFile);
+	gif_mem_free((char *)GifFile->Private);
+	gif_mem_free(GifFile);
 	if (ErrorCode != NULL) {
 		*ErrorCode = D_GIF_SUCCEEDED;
 	}
@@ -801,7 +801,7 @@ static int DGifDecompressLine(GifFileType *GifFile, GifPixelType *Line,
 			if (CrntCode < ClearCode) {
 				/* This is simple - its pixel scalar, so add it
 				 * to output: */
-				Line[i++] = CrntCode;
+				Line[i++] = (GifPixelType)CrntCode;
 			} else {
 				/* Its a code to needed to be traced: trace the
 				 * linked list until the prefix is a pixel,
@@ -821,13 +821,13 @@ static int DGifDecompressLine(GifFileType *GifFile, GifPixelType *Line,
 					    Private->RunningCode - 2) {
 						Suffix[Private->RunningCode -
 						       2] = Stack[StackPtr++] =
-						    DGifGetPrefixChar(
+						    (GifByteType)DGifGetPrefixChar(
 						        Prefix, LastCode,
 						        ClearCode);
 					} else {
 						Suffix[Private->RunningCode -
 						       2] = Stack[StackPtr++] =
-						    DGifGetPrefixChar(
+						    (GifByteType)DGifGetPrefixChar(
 						        Prefix, CrntCode,
 						        ClearCode);
 					}
@@ -852,7 +852,7 @@ static int DGifDecompressLine(GifFileType *GifFile, GifPixelType *Line,
 					return GIF_ERROR;
 				}
 				/* Push the last character on stack: */
-				Stack[StackPtr++] = CrntPrefix;
+				Stack[StackPtr++] = (GifByteType)CrntPrefix;
 
 				/* Now lets pop all the stack into output: */
 				while (StackPtr != 0 && i < LineLen) {
@@ -872,11 +872,11 @@ static int DGifDecompressLine(GifFileType *GifFile, GifPixelType *Line,
 					 * suffix char is exactly the prefix of
 					 * last code! */
 					Suffix[Private->RunningCode - 2] =
-					    DGifGetPrefixChar(Prefix, LastCode,
+					    (GifByteType)DGifGetPrefixChar(Prefix, LastCode,
 					                      ClearCode);
 				} else {
 					Suffix[Private->RunningCode - 2] =
-					    DGifGetPrefixChar(Prefix, CrntCode,
+					    (GifByteType)DGifGetPrefixChar(Prefix, CrntCode,
 					                      ClearCode);
 				}
 			}
@@ -1044,7 +1044,7 @@ static int DGifBufferedInput(GifFileType *GifFile, GifByteType *Buf,
 void DGifDecreaseImageCounter(GifFileType *GifFile) {
 	GifFile->ImageCount--;
 	if (GifFile->SavedImages[GifFile->ImageCount].RasterBits != NULL) {
-		free(GifFile->SavedImages[GifFile->ImageCount].RasterBits);
+		gif_mem_free(GifFile->SavedImages[GifFile->ImageCount].RasterBits);
 	}
 	if (GifFile->SavedImages[GifFile->ImageCount].ImageDesc.ColorMap != NULL) {
 		GifFreeMapObject(GifFile->SavedImages[GifFile->ImageCount].ImageDesc.ColorMap);
@@ -1052,14 +1052,14 @@ void DGifDecreaseImageCounter(GifFileType *GifFile) {
 
 	// Avoid a dodgy edge casse in reallocarray() */
 	if (GifFile->ImageCount <= 0) {
-		free(GifFile->SavedImages);
+		gif_mem_free(GifFile->SavedImages);
 		GifFile->SavedImages = NULL;
 		GifFile->ImageCount = 0;
 		return;
 	}
 
 	/* Realloc array according to the new image counter. */
-	SavedImage *correct_saved_images = (SavedImage *)reallocarray(
+	SavedImage *correct_saved_images = (SavedImage *)gif_mem_realloc_array(
 	    GifFile->SavedImages, GifFile->ImageCount, sizeof(SavedImage));
 	if (correct_saved_images != NULL) {
 		GifFile->SavedImages = correct_saved_images;
@@ -1107,7 +1107,7 @@ int DGifSlurp(GifFileType *GifFile) {
 				DGifDecreaseImageCounter(GifFile);
 				return GIF_ERROR;
 			}
-			sp->RasterBits = (unsigned char *)reallocarray(
+			sp->RasterBits = (unsigned char *)gif_mem_realloc_array(
 			    NULL, ImageSize, sizeof(GifPixelType));
 
 			if (sp->RasterBits == NULL) {
@@ -1145,7 +1145,7 @@ int DGifSlurp(GifFileType *GifFile) {
 				}
 			} else {
 				if (DGifGetLine(GifFile, sp->RasterBits,
-				                ImageSize) == GIF_ERROR) {
+				                (int)ImageSize) == GIF_ERROR) {
 					DGifDecreaseImageCounter(GifFile);
 					return GIF_ERROR;
 				}

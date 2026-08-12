@@ -9,9 +9,9 @@
 #include "gif_decoder_core.h"
 
 #include "gif_lib.h"
+#include "gif_mem.h"
 
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 /** @brief Terminal state remembered by the byte-source bridge. */
@@ -430,7 +430,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
         return GIF_STATUS_INVALID_FORMAT;
     }
 
-    row_buffer = (GifPixelType *)malloc((size_t)image->Width);
+    row_buffer = (GifPixelType *)gif_mem_malloc((size_t)image->Width);
     if (row_buffer == NULL) {
         return GIF_STATUS_OUT_OF_MEMORY;
     }
@@ -443,7 +443,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
             GIF_ERROR) {
             GifStatus status =
                 gif_decoder_map_error(decoder, decoder->gif->Error);
-            free(row_buffer);
+            gif_mem_free(row_buffer);
             return status;
         }
 
@@ -456,7 +456,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
             const GifColorType *color;
 
             if (palette_index >= color_map->ColorCount) {
-                free(row_buffer);
+                gif_mem_free(row_buffer);
                 return GIF_STATUS_INVALID_FORMAT;
             }
             if (palette_index ==
@@ -478,7 +478,7 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
         }
     }
 
-    free(row_buffer);
+    gif_mem_free(row_buffer);
 
     out_frame->frame_index = decoder->frame_index;
     out_frame->delay_ms = decoder->pending_control.delay_ms;
@@ -517,7 +517,7 @@ GifStatus gif_decoder_core_open(GifPortingHandle source_handle,
         return GIF_STATUS_INVALID_ARGUMENT;
     }
 
-    decoder = (GifDecoder *)calloc(1, sizeof(*decoder));
+    decoder = (GifDecoder *)gif_mem_calloc(1, sizeof(*decoder));
     if (decoder == NULL) {
         return GIF_STATUS_OUT_OF_MEMORY;
     }
@@ -529,13 +529,13 @@ GifStatus gif_decoder_core_open(GifPortingHandle source_handle,
     gif = DGifOpen(decoder, gif_decoder_read_bridge, &giflib_error);
     if (gif == NULL) {
         status = gif_decoder_map_error(decoder, giflib_error);
-        free(decoder);
+        gif_mem_free(decoder);
         return status;
     }
 
     if (decoder->source_terminal == GIF_SOURCE_IO_ERROR) {
         (void)DGifCloseFile(gif, NULL);
-        free(decoder);
+        gif_mem_free(decoder);
         return GIF_STATUS_IO_ERROR;
     }
 
@@ -639,5 +639,5 @@ void gif_decoder_core_close(GifDecoder *decoder) {
     if (decoder->source_handle != NULL) {
         gif_porting_close(decoder->source_handle);
     }
-    free(decoder);
+    gif_mem_free(decoder);
 }
