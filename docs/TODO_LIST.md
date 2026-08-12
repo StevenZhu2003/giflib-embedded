@@ -1,44 +1,49 @@
 # Project TODO list
 
-This document is the project roadmap. It intentionally separates confirmed current behavior from work that is planned, under evaluation, or only worth doing when a real user needs it. Priority is about **what to do next**, not a promise of release order.
+This document records planned work, not a feature promise. Priority reflects current value and dependencies: GIF correctness comes before platform-specific integration or performance work. The decoder remains platform-neutral, forward-only, caller-framebuffer-owned, and independent of display and scheduling policy.
 
-Current supported behavior is summarized in [README.md](../README.md). An item in this list is not supported until its implementation, tests, and documentation land.
+Current supported behavior is summarized in [README.md](../README.md). An item is not supported until its implementation, tests, and documentation land.
 
 ## HIGH — next work
 
-No HIGH-priority feature is currently scheduled. Allocator backend work is complete; the next planned implementation work is the MID-HIGH disposal behavior stage below.
+### Stage 6 — Disposal method 2 and composition regression coverage
+
+- Implement GIF disposal method 2 (restore to background) without changing the public decoder lifecycle or output-surface ownership model.
+- Extend multi-frame regression coverage for disposal methods 0/1/2, partial rectangles, transparency, global and local palettes, background initialization, repeated disposal-2 frames, cleanup, and updated-rectangle reporting.
+- Document the implemented composition rules alongside the feature so callers know that the bound canvas remains the complete composited visual state.
 
 ## MID-HIGH — planned after the immediate work
 
-### Stage 6 — Disposal behavior completion
+### Stage 7 — Interlaced image decoding
 
-- Audit and extend tests for the already-supported disposal methods 0/1, especially multi-frame composition and transparency interactions.
-- Implement GIF disposal method 2, including correct canvas restoration, updated-rectangle reporting, failure cleanup, and regression coverage.
+- Decode interlaced GIF rows in their prescribed pass order while retaining the forward-only input contract and one-row working-buffer model.
+- Replace the current intentional rejection with valid/interrupted/malformed interlace regression cases.
+
+### Stage 8 — Compatibility corpus and host-side malformed-input hardening
+
+- Add a small, curated GIF corpus only where each asset has clear provenance and a stable expected result; cover valid composition cases and malformed/truncated inputs not represented by the current synthetic fixtures.
+- Add host-only fuzzing and sanitizer coverage when the corpus and build support are ready. Keep it outside target builds and do not claim real-hardware sanitizer validation.
 
 ## MID — useful, but not the next priority
 
-### Stage 8 — Decoder feature coverage
+### Stage 9 — Disposal method 3
 
-- Implement disposal method 3.
-- Add interlaced-image decoding.
-- Evaluate RGBA output alongside the current RGB888/BGR888 formats, including the public surface contract and memory cost.
-- Review support for currently rejected GIF extensions only when their display semantics are defined and testable.
+- Implement restore-to-previous only after method 2 is stable. First define and document the required backup-memory cost and failure behavior; do not silently add a second full canvas.
 
-### Stage 9 — Decoder memory and integration refinements
+### Stage 10 — Auditability and integration guidance
 
-- Measure and, where worthwhile, reduce decoder peak memory and row-buffer lifetimes without mixing the work with feature changes.
-- Evaluate reusable, optional byte-source adapter modules while preserving the single-file platform-porting boundary.
-- Evaluate an explicit decoder-concurrency model after a real multi-decoder use case establishes the required guarantees.
+- Add a concise giflib import/delta and re-import record beyond the existing attribution notice, so retained files and local behavioral changes remain easy to review when upstream is updated.
+- Add application guidance for deadline-based playback and asynchronous display/DMA ownership without moving scheduling, cache maintenance, or display control into the decoder.
 
 ## LOW — evaluate when there is explicit demand
 
-### Stage 10 — Optional public Memory API
+### Stage 11 — Measured integration and performance follow-up
+
+- Consider a maintained real-hardware reference or reproducible benchmark only when a target integration can be built, run, and maintained without placing a vendor SDK or board policy in the core repository.
+- Evaluate a port-layer read-ahead example for storage backends only after target measurements show that small sequential reads are a bottleneck; do not add filesystem-specific buffering to the decoder.
+- Consider an LVGL integration example only when it can test a supported LVGL release as a real consumer, rather than duplicating the existing allocator mock coverage.
+
+### Stage 12 — Optional public Memory API
 
 - Revisit a public `GifMemoryService` only after a concrete application needs it. Do not publish the existing private `gif_mem_*` facade unchanged.
-- A future contract must settle ownership, lifecycle/reset rules, alignment, allocation accounting, OOM behavior, and synchronization consistently across BUILTIN, PRIVATE, LIBC, and LVGL backends.
-- The U8g2-buffer use case remains an evaluation input, not a reason to share the current global decoder pool without an explicit service contract. See [MEMORY_API_EVALUATION.md](MEMORY_API_EVALUATION.md).
-
-### Stage 11 — Extended allocator/runtime options
-
-- Consider per-decoder allocator contexts, application-supplied BUILTIN pool storage, explicit lock hooks, multi-pool management, or controlled pool reset only if production requirements justify their added API and test cost.
-- Do not add automatic pool expansion or an implicit fallback from BUILTIN or PRIVATE to libc.
+- A future contract must settle ownership, lifecycle/reset rules, alignment, accounting, OOM behavior, and synchronization across BUILTIN, PRIVATE, LIBC, and LVGL backends. See [MEMORY_API_EVALUATION.md](MEMORY_API_EVALUATION.md).
