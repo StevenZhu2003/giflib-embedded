@@ -121,6 +121,8 @@ to fit this library's fixed-pool boundary:
 single-pool wrappers. They select, align, initialize, and use the derived TLSF
 core; they do not copy LVGL's memory manager. `src/memory/gif_mem.c` and `.h`
 are project-original MIT-licensed backend-neutral semantic wrappers.
+`src/memory/gif_mem_libc.c` and `.h` are project-original MIT-licensed private
+wrappers around the C runtime heap; they contain no TLSF, LVGL, or giflib code.
 
 The complete fixed-source and delta record is retained in
 [docs/TLSF_LINEAGE.md](docs/TLSF_LINEAGE.md).
@@ -134,6 +136,9 @@ giflib:
   source-selection config, output-surface types, frame information, and public
   status model. `include/gif_config.h` is the project-original centralized
   compile-time configuration entry point.
+- `docs/MEMORY_API_EVALUATION.md` records the project-original analysis of a
+  possible future public memory service. It does not include code from U8g2,
+  LVGL, giflib, or TLSF.
 - `src/gif_decoder.c` implements the fixed application facade and dispatch
   between the platform port and hidden decoder. `src/gif_decoder_core.c` and
   `src/gif_decoder_core.h` implement the private short-read bridge, error

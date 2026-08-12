@@ -83,9 +83,27 @@ static void test_realloc_stress(void) {
     CHECK(gif_mem_builtin_check_integrity() == 0);
 }
 
+/** @brief Verify a failed fixed-pool resize preserves the original block. */
+static void test_realloc_failure_preserves_original(void) {
+    unsigned char *pointer = gif_mem_malloc(32U);
+    void *replacement;
+
+    CHECK(pointer != NULL);
+    if (pointer == NULL) {
+        return;
+    }
+    pointer[0] = 0x7eU;
+    replacement = gif_mem_realloc(pointer, (size_t)-1);
+    CHECK(replacement == NULL);
+    CHECK(pointer[0] == 0x7eU);
+    gif_mem_free(pointer);
+    CHECK(gif_mem_builtin_check_integrity() == 0);
+}
+
 int main(void) {
     test_fixed_pool_stress();
     test_realloc_stress();
+    test_realloc_failure_preserves_original();
 
     if (failures != 0) {
         fprintf(stderr, "%d builtin memory check(s) failed\n", failures);

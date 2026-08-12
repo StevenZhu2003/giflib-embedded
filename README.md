@@ -46,6 +46,7 @@ include/gif_decoder.h + src/gif_decoder.c     fixed public API
     |         src/memory/gif_mem.c ---------- private allocator facade
     |              |
     |         BUILTIN: vendor/tlsf fixed pool / PRIVATE: port/gif_mem_private.c
+    |         LIBC: src/memory/gif_mem_libc.c
     |
 src/gif_decoder_core.h + .c ---------------- hidden implementation
     |
@@ -73,7 +74,8 @@ Completed:
 - transparent palette pixels that preserve the existing composited canvas;
 - public animation timing metadata in milliseconds without decoder-side waits;
 - fixed public, hidden-core, and single-file platform-porting boundaries.
-- a pluggable private allocator facade with a default 48 KiB fixed TLSF pool;
+- a pluggable private allocator facade with BUILTIN, PRIVATE, and LIBC
+  backends; the default is a 48 KiB fixed TLSF pool;
 - no direct decoder or retained-giflib dependency on `malloc`, `calloc`,
   `realloc`, or `free`.
 
@@ -236,6 +238,7 @@ For a CMake build, choose the backend at configuration time:
 ```sh
 cmake -S . -B build -DGIF_MEM_BACKEND=BUILTIN
 cmake -S . -B build-private -DGIF_MEM_BACKEND=PRIVATE
+cmake -S . -B build-libc -DGIF_MEM_BACKEND=LIBC
 ```
 
 `PRIVATE` compiles no TLSF code. It makes `port/gif_mem_private.c` the second
@@ -246,8 +249,21 @@ its private facade. In particular, `realloc(p, 0)` releases `p`, while the
 retained giflib-compatible `realloc_array(p, 0, n)` returns `NULL` and leaves
 `p` unchanged. The storage port and private allocator are independent.
 
-Neither backend is internally synchronized. Applications must serialize
-concurrent decoder activity, or make the selected PRIVATE provider safe.
+`LIBC` uses the selected C runtime's `malloc()`, `realloc()`, and `free()`
+only behind the same private facade. It is appropriate for hosted builds and
+targets that deliberately choose a C-library heap. It does not make the
+decoder core or retained giflib sources directly dependent on those functions,
+and it does not alter the default no-libc-heap property of BUILTIN.
+
+No backend is internally synchronized by this library. Applications must
+serialize concurrent decoder activity, or make the selected provider safe.
+LIBC has the thread-safety characteristics of its C runtime; PRIVATE has those
+of the application-provided primitives.
+
+The allocator facade is intentionally private at this stage. An evaluation of
+a future optional application-facing memory service, including ownership,
+lifecycle, alignment, OOM, U8g2-buffer, and future LVGL concerns, is available
+in [docs/MEMORY_API_EVALUATION.md](docs/MEMORY_API_EVALUATION.md).
 
 ## Dependencies
 

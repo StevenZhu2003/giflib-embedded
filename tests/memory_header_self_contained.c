@@ -8,6 +8,7 @@
 
 #include "gif_mem.h"
 #include "gif_mem_builtin.h"
+#include "gif_mem_libc.h"
 #include "gif_mem_private.h"
 #include "gif_tlsf.h"
 

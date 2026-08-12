@@ -15,7 +15,8 @@ port/gif_porting.c
 When the optional PRIVATE memory backend is selected, the independent second
 porting point is `port/gif_mem_private.c`. It supplies allocator primitives;
 it is not a filesystem adapter and does not replace this guide's byte-source
-contract.
+contract. The optional LIBC backend needs no porting file: it uses the C
+runtime heap behind the decoder's private allocation facade.
 
 The main tutorial uses a deliberately imaginary storage API. Its names do not
 belong to this library and no such header exists in the repository. They stand
@@ -879,8 +880,8 @@ close ownership.
 
 Memory configuration is deliberately separate from byte-source porting.
 `include/gif_config.h` is the centralized compile-time configuration header;
-CMake selects the matching source set with `-DGIF_MEM_BACKEND=BUILTIN` or
-`-DGIF_MEM_BACKEND=PRIVATE`.
+CMake selects the matching source set with `-DGIF_MEM_BACKEND=BUILTIN`,
+`-DGIF_MEM_BACKEND=PRIVATE`, or `-DGIF_MEM_BACKEND=LIBC`.
 
 BUILTIN is the default. It owns one fixed, explicitly aligned TLSF pool sized
 by `GIF_MEM_POOL_SIZE` (48 KiB by default). It never uses a libc heap, expands
@@ -905,6 +906,13 @@ library facade performs clearing, zero-size handling, and overflow checks
 before it calls these primitives. `realloc(p, 0)` releases `p`, whereas the
 retained giflib-compatible `realloc_array(p, 0, n)` returns `NULL` without
 changing `p`. Thread safety remains the application's responsibility.
+
+LIBC needs no user implementation and compiles no TLSF code. It delegates its
+non-zero allocation primitives to the target C runtime's `malloc()`,
+`realloc()`, and `free()` while the private facade retains the same checked
+`calloc`, overflow, and zero-size rules described above. Choose it only when a
+C-library heap is intentional; BUILTIN remains the default for a bounded,
+no-libc-heap decoder configuration.
 
 ## 11. Diagnose common failures
 

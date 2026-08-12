@@ -23,9 +23,11 @@ static int failures;
         }                                                                      \
     } while (0)
 
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
 size_t giflib_test_outstanding_allocations(void);
 void giflib_test_fail_allocation_after(size_t successful_allocations);
 void giflib_test_disable_allocation_failure(void);
+#endif
 
 /** @brief Verify zero-size requests never enter a provider allocation domain. */
 static void test_zero_size_semantics(void) {
@@ -36,7 +38,9 @@ static void test_zero_size_semantics(void) {
     CHECK(gif_mem_calloc(1U, 0U) == NULL);
     CHECK(pointer != NULL);
     CHECK(gif_mem_realloc(pointer, 0U) == NULL);
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
     CHECK(giflib_test_outstanding_allocations() == 0U);
+#endif
     CHECK(gif_mem_realloc_array(NULL, 0U, 1U) == NULL);
     CHECK(gif_mem_realloc_array(NULL, 1U, 0U) == NULL);
 }
@@ -55,7 +59,9 @@ static void test_calloc_and_free(void) {
     CHECK(gif_mem_calloc(SIZE_MAX, 2U) == NULL);
     gif_mem_free(NULL);
     gif_mem_free(pointer);
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
     CHECK(giflib_test_outstanding_allocations() == 0U);
+#endif
 }
 
 /** @brief Verify realloc growth, shrink, and failure preservation. */
@@ -82,13 +88,17 @@ static void test_realloc_semantics(void) {
         pointer = replacement;
     }
 
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
     giflib_test_fail_allocation_after(0U);
     replacement = gif_mem_realloc(pointer, 64U);
     giflib_test_disable_allocation_failure();
     CHECK(replacement == NULL);
     CHECK(pointer[0] == 0x5aU);
+#endif
     gif_mem_free(pointer);
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
     CHECK(giflib_test_outstanding_allocations() == 0U);
+#endif
 }
 
 /** @brief Verify reallocarray overflow and zero-size release behavior. */
@@ -105,7 +115,9 @@ static void test_realloc_array_semantics(void) {
     CHECK(gif_mem_realloc_array(pointer, 0U, 4U) == NULL);
     CHECK(pointer[0] == 0xa5U);
     gif_mem_free(pointer);
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
     CHECK(giflib_test_outstanding_allocations() == 0U);
+#endif
 }
 
 int main(void) {

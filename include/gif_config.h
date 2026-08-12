@@ -20,14 +20,18 @@
 /** @brief Select the application-provided allocator primitives. */
 #define GIF_MEM_USE_PRIVATE 2
 
+/** @brief Select the C library heap allocator. */
+#define GIF_MEM_USE_LIBC 3
+
 /** @brief Select the memory backend when no application override is supplied. */
 #ifndef GIF_MEM_BACKEND
 #define GIF_MEM_BACKEND GIF_MEM_USE_BUILTIN
 #endif
 
 #if GIF_MEM_BACKEND != GIF_MEM_USE_BUILTIN && \
-    GIF_MEM_BACKEND != GIF_MEM_USE_PRIVATE
-#error "GIF_MEM_BACKEND must be GIF_MEM_USE_BUILTIN or GIF_MEM_USE_PRIVATE"
+    GIF_MEM_BACKEND != GIF_MEM_USE_PRIVATE && \
+    GIF_MEM_BACKEND != GIF_MEM_USE_LIBC
+#error "GIF_MEM_BACKEND must be GIF_MEM_USE_BUILTIN, GIF_MEM_USE_PRIVATE, or GIF_MEM_USE_LIBC"
 #endif
 
 /**
