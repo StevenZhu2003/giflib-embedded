@@ -1,6 +1,5 @@
 # CMake build trees and generated metadata
 /build/
-/build-*/
 /cmake-build-*/
 /_TEMP/
 CMakeCache.txt

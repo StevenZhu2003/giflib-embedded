@@ -53,37 +53,19 @@ src/gif_decoder_core.h + .c ---------------- hidden implementation
 vendor/giflib/ ------------------------------ parser + LZW
 ```
 
-## Current status
+## Supported today
 
-Completed:
+- Forward-only GIF streams through one platform porting file, with explicit
+  short-read, EOF, and I/O-error handling.
+- Streaming non-interlaced RGB888/BGR888 composition with global/local palettes,
+  image rectangles, transparency, timing metadata, and disposal methods 0/1.
+- Caller-owned framebuffer, opaque decoder API, and C99 host/cross builds.
+- Selectable BUILTIN fixed-pool, PRIVATE provider, or LIBC allocator backends;
+  the default BUILTIN mode has no libc heap dependency.
 
-- independent C99 host and cross-compilation build;
-- host-side regression and allocation-balance tests;
-- removal of unused platform file-I/O headers from the decoder core;
-- private-header self-containment;
-- image pixel-count overflow protection;
-- preservation of the underlying `DGifOpen()` error;
-- an opaque public decoder facade;
-- a short-read-aware porting bridge with distinct EOF and I/O errors;
-- platform-independent stream information and status mapping;
-- caller-owned output surfaces with checked capacity and arbitrary stride;
-- streaming non-interlaced RGB888 and BGR888 frame composition;
-- global and local color tables, partial image rectangles, and disposal 0/1;
-- streaming Graphic Control Extension state with frame-scoped delay and
-  transparency;
-- transparent palette pixels that preserve the existing composited canvas;
-- public animation timing metadata in milliseconds without decoder-side waits;
-- fixed public, hidden-core, and single-file platform-porting boundaries.
-- a pluggable private allocator facade with BUILTIN, PRIVATE, and LIBC
-  backends; the default is a 48 KiB fixed TLSF pool;
-- no direct decoder or retained-giflib dependency on `malloc`, `calloc`,
-  `realloc`, or `free`.
-
-The next stage will add disposal mode 2. Later stages will add RGBA output,
-disposal mode 3, and interlace handling. Allocator abstraction and optional
-reusable storage-adapter modules remain deferred until the streaming
-architecture is stable; examples may still include a local port implementation
-to demonstrate the stable three-function contract.
+Unsupported GIF features return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than
+being decoded with incorrect semantics. See [TODO_LIST.md](TODO_LIST.md) for
+planned work and priority.
 
 ## Public API
 
@@ -133,10 +115,6 @@ The application owns `application_select_gif()`, `display_framebuffer()`, and
 `application_delay_ms()`; they are not decoder APIs. Frame delay, including a
 zero delay, is reported exactly in milliseconds and the application chooses
 how or whether to wait.
-
-At the current stage, interlaced images, user-input GCEs, disposal modes 2/3,
-and Plain Text Extensions return `GIF_STATUS_UNSUPPORTED_FEATURE`. They are not
-silently decoded with incorrect semantics.
 
 ## Complete example
 
@@ -236,9 +214,9 @@ measuring their real maximum width, palette use, failure paths, and margin.
 For a CMake build, choose the backend at configuration time:
 
 ```sh
-cmake -S . -B build -DGIF_MEM_BACKEND=BUILTIN
-cmake -S . -B build-private -DGIF_MEM_BACKEND=PRIVATE
-cmake -S . -B build-libc -DGIF_MEM_BACKEND=LIBC
+cmake -S . -B build/host/builtin -DGIF_MEM_BACKEND=BUILTIN
+cmake -S . -B build/host/private -DGIF_MEM_BACKEND=PRIVATE
+cmake -S . -B build/host/libc -DGIF_MEM_BACKEND=LIBC
 ```
 
 `PRIVATE` compiles no TLSF code. It makes `port/gif_mem_private.c` the second
@@ -284,19 +262,19 @@ referenced dependency boundary.
 Configure and test on the host:
 
 ```sh
-cmake -S . -B build -DGIFLIB_BUILD_TESTS=ON
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake -S . -B build/host/builtin -DGIFLIB_BUILD_TESTS=ON
+cmake --build build/host/builtin
+ctest --test-dir build/host/builtin --output-on-failure
 ```
 
 For cross-compilation, provide a normal CMake toolchain file and disable tests
 that cannot execute on the build host:
 
 ```sh
-cmake -S . -B build/target \
+cmake -S . -B build/target/default \
   -DCMAKE_TOOLCHAIN_FILE=path/to/toolchain.cmake \
   -DGIFLIB_BUILD_TESTS=OFF
-cmake --build build/target
+cmake --build build/target/default
 ```
 
 This produces the `giflib_embedded` static library. Toolchain installation
@@ -306,10 +284,10 @@ not in this repository.
 Build the complete hosted example with:
 
 ```sh
-cmake -S . -B build/example \
+cmake -S . -B build/host/example \
   -DGIFLIB_BUILD_TESTS=OFF \
   -DGIFLIB_BUILD_EXAMPLES=ON
-cmake --build build/example
+cmake --build build/host/example
 ```
 
 Run `gif_embedded_player_example` from the directory where the hosted display
@@ -320,7 +298,7 @@ The repository's `port/gif_porting.c` is a compile-safe, unconfigured template.
 Implement its open/read/close bodies for the target before decoding. No other
 library or application file needs platform storage glue.
 
-`cmake --install build --prefix <destination>` installs only the static library
+`cmake --install build/host/builtin --prefix <destination>` installs only the static library
 plus `gif_decoder.h` and `gif_config.h`; private giflib and allocator headers
 are not installed.
 
