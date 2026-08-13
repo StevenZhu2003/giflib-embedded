@@ -43,6 +43,9 @@ GifStatus gif_decoder_open(const GifDecoderConfig *config,
         if (porting_handle != NULL) {
             gif_porting_close(porting_handle);
         }
+        if (porting_status == GIF_PORTING_OUT_OF_MEMORY) {
+            return GIF_STATUS_OUT_OF_MEMORY;
+        }
         return GIF_STATUS_IO_ERROR;
     }
 

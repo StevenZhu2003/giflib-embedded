@@ -356,6 +356,15 @@ if(GIFLIB_BUILD_TESTS)
     )
     giflib_apply_common_options(gif_porting_header_check)
 
+    add_library(gif_porting_memory_header_check OBJECT
+        tests/porting_memory_header_self_contained.c
+    )
+    target_include_directories(gif_porting_memory_header_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+    )
+    giflib_apply_common_options(gif_porting_memory_header_check)
+
     add_library(gif_memory_header_check OBJECT
         tests/memory_header_self_contained.c
     )

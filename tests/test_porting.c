@@ -7,14 +7,22 @@
  */
 
 #include "gif_porting.h"
+#include "gif_porting_memory.h"
 
 #include "test_porting.h"
 
 #include <string.h>
 
+/** @brief Dynamically allocated port state for one test source. */
+typedef struct TestPortingHandle {
+    MemorySource *source; /**< Application-owned source selected at open. */
+} TestPortingHandle;
+
 /** @copydoc gif_porting_open */
 GifPortingStatus gif_porting_open(const void *source_identifier,
                                   GifPortingHandle *out_handle) {
+    TestPortingHandle *handle;
+
     if (out_handle != NULL) {
         *out_handle = NULL;
     }
@@ -25,7 +33,13 @@ GifPortingStatus gif_porting_open(const void *source_identifier,
         return GIF_PORTING_IO_ERROR;
     }
 
-    *out_handle = (void *)source_identifier;
+    handle = (TestPortingHandle *)gif_porting_mem_alloc(sizeof(*handle));
+    if (handle == NULL) {
+        return GIF_PORTING_OUT_OF_MEMORY;
+    }
+
+    handle->source = (MemorySource *)source_identifier;
+    *out_handle = handle;
     return GIF_PORTING_OK;
 }
 
@@ -34,7 +48,8 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
                                   uint8_t *destination,
                                   size_t requested_bytes,
                                   size_t *actual_bytes) {
-    MemorySource *source = (MemorySource *)handle;
+    TestPortingHandle *port_handle = (TestPortingHandle *)handle;
+    MemorySource *source;
     size_t available;
     size_t amount;
 
@@ -43,7 +58,11 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
     }
     *actual_bytes = 0;
 
-    if (source == NULL || destination == NULL || requested_bytes == 0) {
+    if (port_handle == NULL || destination == NULL || requested_bytes == 0) {
+        return GIF_PORTING_IO_ERROR;
+    }
+    source = port_handle->source;
+    if (source == NULL) {
         return GIF_PORTING_IO_ERROR;
     }
 
@@ -85,9 +104,12 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
 
 /** @copydoc gif_porting_close */
 void gif_porting_close(GifPortingHandle handle) {
-    MemorySource *source = (MemorySource *)handle;
+    TestPortingHandle *port_handle = (TestPortingHandle *)handle;
 
-    if (source != NULL) {
-        source->close_calls++;
+    if (port_handle != NULL) {
+        if (port_handle->source != NULL) {
+            port_handle->source->close_calls++;
+        }
+        gif_porting_mem_free(port_handle);
     }
 }

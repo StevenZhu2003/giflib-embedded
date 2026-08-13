@@ -419,7 +419,7 @@ static void test_oom_mapping(void) {
     size_t failure_index;
     GifStatus status;
 
-    for (failure_index = 0U; failure_index < 5U; failure_index++) {
+    for (failure_index = 0U; failure_index < 6U; failure_index++) {
         memory_source_init(&source, gif_header_with_palette,
                            sizeof(gif_header_with_palette));
         decoder = NULL;
@@ -430,7 +430,7 @@ static void test_oom_mapping(void) {
 
         CHECK(status == GIF_STATUS_OUT_OF_MEMORY);
         CHECK(decoder == NULL);
-        CHECK(source.close_calls == 1U);
+        CHECK(source.close_calls == (failure_index == 0U ? 0U : 1U));
         CHECK(giflib_test_outstanding_allocations() == allocations_before);
     }
 #endif

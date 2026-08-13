@@ -191,7 +191,57 @@ GifPortingHandle
 
 The decoder stores `GifPortingHandle` but never interprets it. In a real port it may represent a file object, a memory-stream cursor, a flash-reader state object, or a slot in a fixed pool. The handle is opaque so none of those target types leak into the public decoder API.
 
-### 4.3 Read whenever the decoder needs input
+### 4.3 Allocate a per-stream handle when the port needs one
+
+Some platform APIs open directly into a caller-owned object rather than returning a pointer. A single `static` handle works only when the product deliberately permits one active decoder. For a general multi-instance port, include the port-only bridge in `gif_porting.c`:
+
+```c
+#include "gif_porting_memory.h"
+```
+
+It provides only `gif_porting_mem_alloc()` and `gif_porting_mem_free()`. Both use the decoder's selected memory backend, but this header is not installed and is not an application Memory API. A port can keep its platform object inside one dynamically allocated wrapper:
+
+```c
+typedef struct PortStorageHandle {
+    StorageHandle storage;
+} PortStorageHandle;
+
+GifPortingStatus gif_porting_open(const void *source_identifier,
+                                  GifPortingHandle *out_handle) {
+    PortStorageHandle *handle;
+
+    if (out_handle == NULL || source_identifier == NULL) {
+        return GIF_PORTING_IO_ERROR;
+    }
+    *out_handle = NULL;
+
+    handle = gif_porting_mem_alloc(sizeof(*handle));
+    if (handle == NULL) {
+        return GIF_PORTING_OUT_OF_MEMORY;
+    }
+    handle->storage = storage_open(source_identifier);
+    if (handle->storage == NULL) {
+        gif_porting_mem_free(handle);
+        return GIF_PORTING_IO_ERROR;
+    }
+
+    *out_handle = handle;
+    return GIF_PORTING_OK;
+}
+
+void gif_porting_close(GifPortingHandle opaque_handle) {
+    PortStorageHandle *handle = (PortStorageHandle *)opaque_handle;
+
+    if (handle != NULL) {
+        storage_close(handle->storage);
+        gif_porting_mem_free(handle);
+    }
+}
+```
+
+Only allocations created through this bridge may be passed to `gif_porting_mem_free()`. Close the platform source before releasing its wrapper. A failed allocation is reported as `GIF_PORTING_OUT_OF_MEMORY`, which `gif_decoder_open()` maps to `GIF_STATUS_OUT_OF_MEMORY`; a platform open failure remains `GIF_PORTING_IO_ERROR`. In BUILTIN mode, add every simultaneously live wrapper to the pool budget. A port that uses a target-owned slot or a source identifier as its handle does not need this bridge.
+
+### 4.4 Read whenever the decoder needs input
 
 The application never calls `gif_porting_read()` directly. Reads can occur in both public operations:
 
@@ -255,7 +305,7 @@ Successful zero-byte progress is not allowed. Without this rule the decoder coul
 
 The decoder only requires forward, sequential reads. The target abstraction does not need seek, rewind, tell, file-size, directory, or GIF-specific operations.
 
-### 4.4 Close when the decoder releases the source
+### 4.5 Close when the decoder releases the source
 
 The normal close path is:
 
@@ -563,10 +613,11 @@ The tutorial first explains why the abstraction exists. This section collects th
 - `src/gif_decoder.c` is the fixed public implementation. Do not add target initialization or byte-source calls to it.
 - `src/gif_decoder_core.c` and `src/gif_decoder_core.h` are hidden decoder implementation. Applications and ports do not include or call them.
 - `port/gif_porting.h` is the fixed, platform-neutral port contract and normally requires no changes.
-- `port/gif_porting.c` is the target implementation. Target includes, private handle state, open/read/close calls, and error mapping belong here.
+- `port/gif_porting_memory.h` is an optional port-only bridge for a dynamically allocated handle. It is not installed and applications do not include it.
+- `port/gif_porting.c` is the target implementation. Target includes, private handle state, open/read/close calls, dynamic-handle ownership, and error mapping belong here.
 - `vendor/giflib/` contains upstream-derived parser and LZW code. A platform port does not modify it.
 
-The port supplies input bytes only. The caller owns the output framebuffer. Display, cache policy, playback timing, user input, source initialization, and hardware control remain outside the porting layer. Memory allocation is also outside this three-function contract; current runtime requirements are listed in the README.
+The port supplies input bytes only. The caller owns the output framebuffer. Display, cache policy, playback timing, user input, source initialization, and hardware control remain outside the porting layer. A port may use the optional bridge solely to own its open-source handle; it must not use GIF decoder memory for an application framebuffer or unrelated application storage.
 
 ### 8.2 Source identifier rules
 
@@ -582,7 +633,8 @@ The port supplies input bytes only. The caller owns the output framebuffer. Disp
 - Validate and interpret `source_identifier` only inside the port.
 - Acquire or initialize all open-source state before publishing the handle.
 - Return `GIF_PORTING_OK` with a non-`NULL` handle only after complete success.
-- On failure, release partial resources, leave the handle `NULL`, and return `GIF_PORTING_IO_ERROR`.
+- On failure, release partial resources and leave the handle `NULL`.
+- Return `GIF_PORTING_OUT_OF_MEMORY` when `gif_porting_mem_alloc()` cannot create a required handle; return `GIF_PORTING_IO_ERROR` for other open failures.
 - `GIF_PORTING_EOF` is a read result and is never returned from open.
 
 ### 8.4 Handle, ownership, and concurrency rules
@@ -591,6 +643,7 @@ The port supplies input bytes only. The caller owns the output framebuffer. Disp
 - The application does not inspect, reuse, or close the porting handle.
 - A single static source object is valid only for one active decoder and must reject another open while busy.
 - Concurrent decoders require independent source position and mutable state, such as separate objects or slots in a port-owned pool.
+- A dynamic wrapper allocated by `gif_porting_mem_alloc()` is released exactly once by `gif_porting_close()` and shares the selected GIF allocator domain.
 - Close releases only resources owned by the port and accepts `NULL` safely.
 
 ### 8.5 Read rules
@@ -638,7 +691,7 @@ gif_decoder_close()
     -> gif_porting_close()
 ```
 
-If port open fails, the public result is `GIF_STATUS_IO_ERROR`. Unexpected EOF while parsing a required GIF structure becomes `GIF_STATUS_UNEXPECTED_EOF`. An actual source failure becomes `GIF_STATUS_IO_ERROR`.
+If port open cannot allocate a required dynamic handle, the public result is `GIF_STATUS_OUT_OF_MEMORY`; another port-open failure becomes `GIF_STATUS_IO_ERROR`. Unexpected EOF while parsing a required GIF structure becomes `GIF_STATUS_UNEXPECTED_EOF`. An actual source failure becomes `GIF_STATUS_IO_ERROR`.
 
 Every successful port open is closed exactly once, including malformed GIFs, allocation failures, unsupported input discovered during initialization, and normal end of stream. A port-open failure that never publishes a handle is not followed by close; the open implementation must clean up its own partial work.
 

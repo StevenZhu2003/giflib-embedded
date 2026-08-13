@@ -21,9 +21,10 @@ typedef void *GifPortingHandle;
 
 /** @brief Results returned across the platform byte-source boundary. */
 typedef enum GifPortingStatus {
-    GIF_PORTING_OK = 0,      /**< Operation succeeded; bytes may be present. */
-    GIF_PORTING_EOF = 1,     /**< Final bytes were returned or input ended. */
-    GIF_PORTING_IO_ERROR = 2 /**< Source open or read operation failed. */
+    GIF_PORTING_OK = 0, /**< Operation succeeded; bytes may be present. */
+    GIF_PORTING_EOF = 1, /**< Final bytes were returned or input ended. */
+    GIF_PORTING_IO_ERROR = 2, /**< Source open or read operation failed. */
+    GIF_PORTING_OUT_OF_MEMORY = 3 /**< Port handle allocation failed. */
 } GifPortingStatus;
 
 /**
@@ -35,7 +36,9 @@ typedef enum GifPortingStatus {
  *
  * @param[in] source_identifier Application-selected resource identifier.
  * @param[out] out_handle       Receives the open platform source handle.
- * @return `GIF_PORTING_OK` on success or `GIF_PORTING_IO_ERROR` on failure.
+ * @return `GIF_PORTING_OK` on success, `GIF_PORTING_OUT_OF_MEMORY` when a
+ *         dynamic port handle cannot be allocated, or `GIF_PORTING_IO_ERROR`
+ *         for another open failure.
  */
 GifPortingStatus gif_porting_open(const void *source_identifier,
                                   GifPortingHandle *out_handle);

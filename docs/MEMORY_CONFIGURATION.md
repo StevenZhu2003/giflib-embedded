@@ -1,12 +1,12 @@
 # Memory configuration
 
-This document sizes decoder-owned memory. It is intentionally separate from [USER_GUIDE.md](USER_GUIDE.md), which does not prescribe an application's output-storage or display design.
+This document sizes decoder-owned memory, including optional dynamic handles owned by `gif_porting.c`. It is intentionally separate from [USER_GUIDE.md](USER_GUIDE.md), which does not prescribe an application's output-storage or display design.
 
 ## BUILTIN pool
 
 `GIF_MEM_BACKEND` defaults to `GIF_MEM_USE_BUILTIN`. It owns one explicitly aligned TLSF pool and never expands it or falls back to a C library heap. Its size is set by `GIF_MEM_POOL_SIZE` in `include/gif_config.h`; the default is 48 KiB.
 
-The streaming decoder does not retain decoded frames or `SavedImages`. For a supported stream with both a global and local 256-entry palette, its maximum live allocation payload is bounded by:
+The streaming decoder does not retain decoded frames or `SavedImages`. For one supported stream with both a global and local 256-entry palette, its maximum live allocation payload is bounded by:
 
 ```text
 D_payload(W) = sizeof(GifDecoder)
@@ -24,15 +24,22 @@ For the verified 32-bit ARM build:
 D_payload(W) = 26,584 + W bytes
 ```
 
-This excludes TLSF metadata and a product safety margin. Choose:
+`D_payload(W)` does not include a port handle. A port that uses the port-only `gif_porting_mem_alloc()` bridge must add the total payload of every simultaneously open wrapper:
 
 ```text
-GIF_MEM_POOL_SIZE >= D_payload(W)
+H_port(N) = sum of live port-owned handle allocations for N active decoders
+```
+
+For one wrapper of `sizeof(PortStorageHandle)` per decoder, `H_port(N)` is `N × sizeof(PortStorageHandle)`. This excludes TLSF metadata and a product safety margin. Choose:
+
+```text
+GIF_MEM_POOL_SIZE >= sum(D_payload(W_i), i = 1..N)
+                   + H_port(N)
                    + TLSF_control_and_allocation_metadata
                    + safety_margin
 ```
 
-With the current 32-bit ARM default pool, TLSF control metadata is about 1,340 bytes. Per-allocation metadata, alignment rounding, and the pool sentinel also consume capacity. Start with at least a 4 KiB product-specific safety margin, then validate the largest intended resources and the actual allocation pattern.
+For one active decoder, the sum reduces to `D_payload(W)`. With the current 32-bit ARM default pool, TLSF control metadata is about 1,340 bytes. Per-allocation metadata, alignment rounding, and the pool sentinel also consume capacity. Start with at least a 4 KiB product-specific safety margin, then validate the largest intended resources and the actual allocation pattern.
 
 ## Static-RAM planning
 
@@ -62,7 +69,7 @@ With the default 48 KiB pool, the balance condition corresponds to at least 16,3
 
 ## Other backends
 
-PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder's live payload bound still helps estimate demand, but total system reservation and fragmentation are properties of the selected provider.
+PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder and any opt-in dynamic port handles use the same selected provider; total system reservation and fragmentation are properties of that provider.
 
 ## LVGL backend
 
