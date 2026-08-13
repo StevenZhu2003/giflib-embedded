@@ -60,7 +60,7 @@ struct GifDecoder {
  *
  * @param[out] control Frame control state to reset.
  */
-static void gif_decoder_reset_frame_control(GifFrameControl *control) {
+static inline void gif_decoder_reset_frame_control(GifFrameControl *control) {
     control->transparent_color = NO_TRANSPARENT_COLOR;
     control->delay_ms = 0;
     control->disposal_mode = DISPOSAL_UNSPECIFIED;
@@ -170,118 +170,30 @@ static GifStatus gif_decoder_map_error(const GifDecoder *decoder,
 }
 
 /**
- * @brief Store and return a sticky decoder failure.
+ * @brief Store one RGB triplet in the selected packed output byte order.
  *
- * @param[in,out] decoder Decoder that entered a terminal failure state.
- * @param[in] status      Public failure to retain.
- * @return The supplied status value.
+ * This is shared by background restoration and image composition. It is
+ * deliberately inline because both callers execute it once per output pixel.
+ *
+ * @param[in] pixel_format Destination byte order.
+ * @param[out] destination  Three writable destination bytes.
+ * @param[in] red           Red component to store.
+ * @param[in] green         Green component to store.
+ * @param[in] blue          Blue component to store.
  */
-static GifStatus gif_decoder_fail(GifDecoder *decoder, GifStatus status) {
-    decoder->terminal_status = status;
-    return status;
-}
-
-/**
- * @brief Return the packed byte width of a supported pixel format.
- *
- * @param[in] pixel_format Pixel layout to query.
- * @return Bytes per pixel, or zero for an unknown format.
- */
-static size_t gif_decoder_bytes_per_pixel(GifPixelFormat pixel_format) {
-    switch (pixel_format) {
-    case GIF_PIXEL_RGB888:
-    case GIF_PIXEL_BGR888:
-        return 3;
-    default:
-        return 0;
-    }
-}
-
-/**
- * @brief Validate output format, stride, palette background, and capacity.
- *
- * All size calculations are checked before multiplication or addition so the
- * same validation is safe on 32-bit embedded targets.
- *
- * @param[in] decoder Decoder containing logical-screen information.
- * @param[in] surface Caller-provided output descriptor.
- * @return `GIF_STATUS_OK` or a precise validation status.
- */
-static GifStatus gif_decoder_validate_surface(const GifDecoder *decoder,
-                                              const GifOutputSurface *surface) {
-    size_t bytes_per_pixel;
-    size_t row_bytes;
-    size_t required_bytes;
-    size_t rows_before_last;
-
-    if (surface == NULL || surface->pixels == NULL) {
-        return GIF_STATUS_INVALID_ARGUMENT;
-    }
-
-    bytes_per_pixel = gif_decoder_bytes_per_pixel(surface->pixel_format);
-    if (bytes_per_pixel == 0) {
-        return GIF_STATUS_INVALID_ARGUMENT;
-    }
-    if (decoder->gif->SWidth <= 0 || decoder->gif->SHeight <= 0) {
-        return GIF_STATUS_INVALID_FORMAT;
-    }
-    if (decoder->gif->SColorMap != NULL &&
-        (decoder->gif->SColorMap->Colors == NULL ||
-         decoder->gif->SColorMap->ColorCount <= 0 ||
-         decoder->gif->SBackGroundColor < 0 ||
-         decoder->gif->SBackGroundColor >=
-             decoder->gif->SColorMap->ColorCount)) {
-        return GIF_STATUS_INVALID_FORMAT;
-    }
-    if ((size_t)decoder->gif->SWidth > SIZE_MAX / bytes_per_pixel) {
-        return GIF_STATUS_BUFFER_TOO_SMALL;
-    }
-
-    row_bytes = (size_t)decoder->gif->SWidth * bytes_per_pixel;
-    if (surface->stride_bytes < row_bytes) {
-        return GIF_STATUS_BUFFER_TOO_SMALL;
-    }
-
-    rows_before_last = (size_t)decoder->gif->SHeight - 1;
-    if (rows_before_last != 0 &&
-        surface->stride_bytes > (SIZE_MAX - row_bytes) / rows_before_last) {
-        return GIF_STATUS_BUFFER_TOO_SMALL;
-    }
-    required_bytes = rows_before_last * surface->stride_bytes + row_bytes;
-    if (surface->capacity_bytes < required_bytes) {
-        return GIF_STATUS_BUFFER_TOO_SMALL;
-    }
-
-    return GIF_STATUS_OK;
-}
-
-/**
- * @brief Resolve the initial logical-screen background color.
- *
- * A stream without a global color table uses deterministic black. A present
- * global table has already been validated by the surface validator.
- *
- * @param[in] decoder Decoder containing the global color table.
- * @param[out] red    Resolved red component.
- * @param[out] green  Resolved green component.
- * @param[out] blue   Resolved blue component.
- */
-static void gif_decoder_background_color(const GifDecoder *decoder,
-                                         uint8_t *red,
-                                         uint8_t *green,
-                                         uint8_t *blue) {
-    const ColorMapObject *color_map = decoder->gif->SColorMap;
-    int background_index = decoder->gif->SBackGroundColor;
-
-    *red = 0;
-    *green = 0;
-    *blue = 0;
-
-    if (color_map != NULL && background_index >= 0 &&
-        background_index < color_map->ColorCount) {
-        *red = color_map->Colors[background_index].Red;
-        *green = color_map->Colors[background_index].Green;
-        *blue = color_map->Colors[background_index].Blue;
+static inline void gif_decoder_store_pixel(GifPixelFormat pixel_format,
+                                           uint8_t *destination,
+                                           uint8_t red,
+                                           uint8_t green,
+                                           uint8_t blue) {
+    if (pixel_format == GIF_PIXEL_RGB888) {
+        destination[0] = red;
+        destination[1] = green;
+        destination[2] = blue;
+    } else {
+        destination[0] = blue;
+        destination[1] = green;
+        destination[2] = red;
     }
 }
 
@@ -294,14 +206,21 @@ static void gif_decoder_background_color(const GifDecoder *decoder,
  */
 static void gif_decoder_fill_background_rectangle(
     GifDecoder *decoder, const GifCanvasRectangle *rectangle) {
+    const ColorMapObject *color_map = decoder->gif->SColorMap;
+    int background_index = decoder->gif->SBackGroundColor;
     uint8_t *pixels = (uint8_t *)decoder->output.pixels;
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
+    uint8_t red = 0;
+    uint8_t green = 0;
+    uint8_t blue = 0;
     uint32_t row;
     uint32_t column;
 
-    gif_decoder_background_color(decoder, &red, &green, &blue);
+    if (color_map != NULL && background_index >= 0 &&
+        background_index < color_map->ColorCount) {
+        red = color_map->Colors[background_index].Red;
+        green = color_map->Colors[background_index].Green;
+        blue = color_map->Colors[background_index].Blue;
+    }
     for (row = 0; row < rectangle->height; row++) {
         uint8_t *destination =
             pixels + (size_t)(rectangle->top + row) *
@@ -309,316 +228,11 @@ static void gif_decoder_fill_background_rectangle(
             (size_t)rectangle->left * 3;
 
         for (column = 0; column < rectangle->width; column++) {
-            if (decoder->output.pixel_format == GIF_PIXEL_RGB888) {
-                destination[0] = red;
-                destination[1] = green;
-                destination[2] = blue;
-            } else {
-                destination[0] = blue;
-                destination[1] = green;
-                destination[2] = red;
-            }
+            gif_decoder_store_pixel(decoder->output.pixel_format,
+                                    destination, red, green, blue);
             destination += 3;
         }
     }
-}
-
-/**
- * @brief Fill the visible canvas with its initial background color.
- *
- * Row padding is intentionally left untouched.
- *
- * @param[in,out] decoder Decoder with a validated bound output surface.
- */
-static void gif_decoder_initialize_output(GifDecoder *decoder) {
-    GifCanvasRectangle canvas;
-
-    canvas.left = 0;
-    canvas.top = 0;
-    canvas.width = (uint32_t)decoder->gif->SWidth;
-    canvas.height = (uint32_t)decoder->gif->SHeight;
-    gif_decoder_fill_background_rectangle(decoder, &canvas);
-}
-
-/**
- * @brief Apply the prior frame's restore-to-background instruction.
- *
- * GIF method 2 takes effect after the prior frame's display interval and
- * immediately before the next image is composed. The decoder therefore keeps
- * the completed prior canvas available to the caller, then clears only the
- * prior image rectangle while preparing the following successful frame.
- *
- * @param[in,out] decoder Decoder holding the deferred disposal rectangle.
- * @param[out] out_rect    Receives the cleared rectangle when one is applied.
- * @return Non-zero when @p out_rect contains a restored area.
- */
-static uint8_t gif_decoder_apply_pending_background_disposal(
-    GifDecoder *decoder, GifCanvasRectangle *out_rect) {
-    if (decoder->pending_background_disposal == 0) {
-        return 0;
-    }
-
-    gif_decoder_fill_background_rectangle(decoder,
-                                          &decoder->pending_background_rect);
-    *out_rect = decoder->pending_background_rect;
-    decoder->pending_background_disposal = 0;
-    return 1;
-}
-
-/**
- * @brief Report the conservative canvas region changed for one frame result.
- *
- * A successful image always updates its own rectangle. If method 2 restored
- * the preceding image immediately before composition, both rectangles are
- * included in the reported bounding box even when a transparent pixel leaves
- * part of that box visually unchanged.
- *
- * @param[in] image_rect       Current image rectangle.
- * @param[in] restored_rect    Prior restored rectangle, if any.
- * @param[in] has_restored_rect Non-zero when @p restored_rect is valid.
- * @param[out] out_rect        Receives the conservative updated rectangle.
- */
-static void gif_decoder_updated_rectangle(
-    const GifCanvasRectangle *image_rect,
-    const GifCanvasRectangle *restored_rect,
-    uint8_t has_restored_rect,
-    GifCanvasRectangle *out_rect) {
-    if (has_restored_rect == 0) {
-        *out_rect = *image_rect;
-        return;
-    }
-
-    {
-        uint32_t left = image_rect->left < restored_rect->left
-                            ? image_rect->left
-                            : restored_rect->left;
-        uint32_t top = image_rect->top < restored_rect->top
-                           ? image_rect->top
-                           : restored_rect->top;
-        uint32_t image_right = image_rect->left + image_rect->width;
-        uint32_t restored_right = restored_rect->left + restored_rect->width;
-        uint32_t image_bottom = image_rect->top + image_rect->height;
-        uint32_t restored_bottom = restored_rect->top + restored_rect->height;
-        uint32_t right = image_right > restored_right ? image_right
-                                                       : restored_right;
-        uint32_t bottom = image_bottom > restored_bottom ? image_bottom
-                                                          : restored_bottom;
-
-        out_rect->left = left;
-        out_rect->top = top;
-        out_rect->width = right - left;
-        out_rect->height = bottom - top;
-    }
-}
-
-/**
- * @brief Consume one extension and retain a GCE for the next image.
- *
- * Delay and transparency are copied into private streaming state rather than
- * accumulated in giflib SavedImages. Disposal 0/1/2 are valid at this stage;
- * user-input control and restore-to-previous remain explicit unsupported
- * features.
- *
- * @param[in,out] decoder Decoder positioned after an extension introducer.
- * @return Public status for the consumed or rejected extension.
- */
-static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
-    GifByteType *extension = NULL;
-    int extension_code = 0;
-
-    if (DGifGetExtension(decoder->gif, &extension_code, &extension) ==
-        GIF_ERROR) {
-        return gif_decoder_map_error(decoder, decoder->gif->Error);
-    }
-
-    if (extension_code == GRAPHICS_EXT_FUNC_CODE) {
-        GraphicsControlBlock control;
-
-        if (extension == NULL || extension[0] != 4) {
-            return GIF_STATUS_INVALID_FORMAT;
-        }
-        if ((extension[1] & 0xe0U) != 0) {
-            return GIF_STATUS_INVALID_FORMAT;
-        }
-        if (DGifExtensionToGCB((size_t)extension[0], extension + 1,
-                               &control) == GIF_ERROR) {
-            return GIF_STATUS_INVALID_FORMAT;
-        }
-        if (control.UserInputFlag ||
-            control.DisposalMode > DISPOSE_BACKGROUND) {
-            return GIF_STATUS_UNSUPPORTED_FEATURE;
-        }
-
-        decoder->pending_control.delay_ms =
-            (uint32_t)control.DelayTime * 10U;
-        decoder->pending_control.transparent_color =
-            control.TransparentColor;
-        decoder->pending_control.disposal_mode =
-            (uint8_t)control.DisposalMode;
-
-        if (DGifGetExtensionNext(decoder->gif, &extension) == GIF_ERROR) {
-            return gif_decoder_map_error(decoder, decoder->gif->Error);
-        }
-        if (extension != NULL) {
-            return GIF_STATUS_INVALID_FORMAT;
-        }
-        return GIF_STATUS_OK;
-    } else if (extension_code == PLAINTEXT_EXT_FUNC_CODE) {
-        return GIF_STATUS_UNSUPPORTED_FEATURE;
-    }
-
-    do {
-        if (DGifGetExtensionNext(decoder->gif, &extension) == GIF_ERROR) {
-            return gif_decoder_map_error(decoder, decoder->gif->Error);
-        }
-    } while (extension != NULL);
-
-    return GIF_STATUS_OK;
-}
-
-/**
- * @brief Check that the current image rectangle lies inside the canvas.
- *
- * @param[in] decoder Decoder containing the current giflib image descriptor.
- * @return Non-zero when the rectangle is valid, otherwise zero.
- */
-static int gif_decoder_image_rectangle_is_valid(const GifDecoder *decoder) {
-    const GifImageDesc *image = &decoder->gif->Image;
-
-    if (image->Left < 0 || image->Top < 0 || image->Width <= 0 ||
-        image->Height <= 0 || image->Left > decoder->gif->SWidth ||
-        image->Top > decoder->gif->SHeight) {
-        return 0;
-    }
-    if (image->Width > decoder->gif->SWidth - image->Left ||
-        image->Height > decoder->gif->SHeight - image->Top) {
-        return 0;
-    }
-    return 1;
-}
-
-/**
- * @brief Stream one non-interlaced image into the composited output surface.
- *
- * One palette-index row is allocated at a time. The function selects the local
- * color table when present and otherwise uses the global table.
- *
- * @param[in,out] decoder Decoder positioned at an image descriptor.
- * @param[out] out_frame  Receives frame and updated-rectangle metadata.
- * @return Public decode, format, feature, source, or allocation status.
- */
-static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
-                                           GifFrameInfo *out_frame) {
-    const ColorMapObject *color_map;
-    GifCanvasRectangle image_rect;
-    GifCanvasRectangle restored_rect;
-    GifCanvasRectangle updated_rect;
-    GifPixelType *row_buffer;
-    GifImageDesc *image = &decoder->gif->Image;
-    uint8_t restored_previous;
-    int row;
-
-    if (DGifGetImageHeader(decoder->gif) == GIF_ERROR) {
-        return gif_decoder_map_error(decoder, decoder->gif->Error);
-    }
-    if (!gif_decoder_image_rectangle_is_valid(decoder)) {
-        return GIF_STATUS_INVALID_FORMAT;
-    }
-    if (image->Interlace) {
-        return GIF_STATUS_UNSUPPORTED_FEATURE;
-    }
-
-    color_map = image->ColorMap != NULL ? image->ColorMap
-                                        : decoder->gif->SColorMap;
-    if (color_map == NULL || color_map->Colors == NULL ||
-        color_map->ColorCount <= 0) {
-        return GIF_STATUS_INVALID_FORMAT;
-    }
-    if (decoder->pending_control.transparent_color != NO_TRANSPARENT_COLOR &&
-        decoder->pending_control.transparent_color >=
-            color_map->ColorCount) {
-        return GIF_STATUS_INVALID_FORMAT;
-    }
-
-    row_buffer = (GifPixelType *)gif_mem_malloc((size_t)image->Width);
-    if (row_buffer == NULL) {
-        return GIF_STATUS_OUT_OF_MEMORY;
-    }
-
-    restored_previous = gif_decoder_apply_pending_background_disposal(
-        decoder, &restored_rect);
-
-    for (row = 0; row < image->Height; row++) {
-        uint8_t *destination;
-        int column;
-
-        if (DGifGetLine(decoder->gif, row_buffer, image->Width) ==
-            GIF_ERROR) {
-            GifStatus status =
-                gif_decoder_map_error(decoder, decoder->gif->Error);
-            gif_mem_free(row_buffer);
-            return status;
-        }
-
-        destination = (uint8_t *)decoder->output.pixels +
-                      (size_t)(image->Top + row) *
-                          decoder->output.stride_bytes +
-                      (size_t)image->Left * 3;
-        for (column = 0; column < image->Width; column++) {
-            int palette_index = row_buffer[column];
-            const GifColorType *color;
-
-            if (palette_index >= color_map->ColorCount) {
-                gif_mem_free(row_buffer);
-                return GIF_STATUS_INVALID_FORMAT;
-            }
-            if (palette_index ==
-                decoder->pending_control.transparent_color) {
-                destination += 3;
-                continue;
-            }
-            color = &color_map->Colors[palette_index];
-            if (decoder->output.pixel_format == GIF_PIXEL_RGB888) {
-                destination[0] = color->Red;
-                destination[1] = color->Green;
-                destination[2] = color->Blue;
-            } else {
-                destination[0] = color->Blue;
-                destination[1] = color->Green;
-                destination[2] = color->Red;
-            }
-            destination += 3;
-        }
-    }
-
-    gif_mem_free(row_buffer);
-
-    image_rect.left = (uint32_t)image->Left;
-    image_rect.top = (uint32_t)image->Top;
-    image_rect.width = (uint32_t)image->Width;
-    image_rect.height = (uint32_t)image->Height;
-    gif_decoder_updated_rectangle(&image_rect, &restored_rect,
-                                  restored_previous, &updated_rect);
-
-    out_frame->frame_index = decoder->frame_index;
-    out_frame->delay_ms = decoder->pending_control.delay_ms;
-    out_frame->image_left = image_rect.left;
-    out_frame->image_top = image_rect.top;
-    out_frame->image_width = image_rect.width;
-    out_frame->image_height = image_rect.height;
-    out_frame->updated_left = updated_rect.left;
-    out_frame->updated_top = updated_rect.top;
-    out_frame->updated_width = updated_rect.width;
-    out_frame->updated_height = updated_rect.height;
-    decoder->pending_background_disposal =
-        decoder->pending_control.disposal_mode == DISPOSE_BACKGROUND;
-    if (decoder->pending_background_disposal != 0) {
-        decoder->pending_background_rect = image_rect;
-    }
-    decoder->frame_index++;
-    gif_decoder_reset_frame_control(&decoder->pending_control);
-
-    return GIF_STATUS_OK;
 }
 
 /** @copydoc gif_decoder_core_open */
@@ -680,7 +294,10 @@ GifStatus gif_decoder_core_open(GifPortingHandle source_handle,
 /** @copydoc gif_decoder_core_bind_output */
 GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
                                        const GifOutputSurface *surface) {
-    GifStatus status;
+    GifCanvasRectangle canvas;
+    size_t row_bytes;
+    size_t required_bytes;
+    size_t rows_before_last;
 
     if (decoder == NULL) {
         return GIF_STATUS_INVALID_ARGUMENT;
@@ -689,15 +306,47 @@ GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
         decoder->stream_ended || decoder->frame_index != 0) {
         return GIF_STATUS_INVALID_STATE;
     }
+    if (surface == NULL || surface->pixels == NULL ||
+        (surface->pixel_format != GIF_PIXEL_RGB888 &&
+         surface->pixel_format != GIF_PIXEL_BGR888)) {
+        return GIF_STATUS_INVALID_ARGUMENT;
+    }
+    if (decoder->gif->SWidth <= 0 || decoder->gif->SHeight <= 0) {
+        return GIF_STATUS_INVALID_FORMAT;
+    }
+    if (decoder->gif->SColorMap != NULL &&
+        (decoder->gif->SColorMap->Colors == NULL ||
+         decoder->gif->SColorMap->ColorCount <= 0 ||
+         decoder->gif->SBackGroundColor < 0 ||
+         decoder->gif->SBackGroundColor >=
+             decoder->gif->SColorMap->ColorCount)) {
+        return GIF_STATUS_INVALID_FORMAT;
+    }
+    if ((size_t)decoder->gif->SWidth > SIZE_MAX / 3U) {
+        return GIF_STATUS_BUFFER_TOO_SMALL;
+    }
 
-    status = gif_decoder_validate_surface(decoder, surface);
-    if (status != GIF_STATUS_OK) {
-        return status;
+    row_bytes = (size_t)decoder->gif->SWidth * 3U;
+    if (surface->stride_bytes < row_bytes) {
+        return GIF_STATUS_BUFFER_TOO_SMALL;
+    }
+    rows_before_last = (size_t)decoder->gif->SHeight - 1U;
+    if (rows_before_last != 0U &&
+        surface->stride_bytes > (SIZE_MAX - row_bytes) / rows_before_last) {
+        return GIF_STATUS_BUFFER_TOO_SMALL;
+    }
+    required_bytes = rows_before_last * surface->stride_bytes + row_bytes;
+    if (surface->capacity_bytes < required_bytes) {
+        return GIF_STATUS_BUFFER_TOO_SMALL;
     }
 
     decoder->output = *surface;
     decoder->output_bound = 1;
-    gif_decoder_initialize_output(decoder);
+    canvas.left = 0;
+    canvas.top = 0;
+    canvas.width = (uint32_t)decoder->gif->SWidth;
+    canvas.height = (uint32_t)decoder->gif->SHeight;
+    gif_decoder_fill_background_rectangle(decoder, &canvas);
     return GIF_STATUS_OK;
 }
 
@@ -705,6 +354,8 @@ GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
 GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                                       GifFrameInfo *out_frame) {
     GifRecordType record_type;
+    GifPixelType *row_buffer = NULL;
+    GifStatus status;
 
     if (decoder == NULL || out_frame == NULL) {
         return GIF_STATUS_INVALID_ARGUMENT;
@@ -722,34 +373,227 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
     }
 
     for (;;) {
-        GifStatus status;
-
         if (DGifGetRecordType(decoder->gif, &record_type) == GIF_ERROR) {
-            return gif_decoder_fail(
-                decoder,
-                gif_decoder_map_error(decoder, decoder->gif->Error));
+            status = gif_decoder_map_error(decoder, decoder->gif->Error);
+            goto fail;
         }
 
         switch (record_type) {
-        case IMAGE_DESC_RECORD_TYPE:
-            status = gif_decoder_decode_image(decoder, out_frame);
-            if (status != GIF_STATUS_OK) {
-                return gif_decoder_fail(decoder, status);
+        case IMAGE_DESC_RECORD_TYPE: {
+            const ColorMapObject *color_map;
+            GifCanvasRectangle image_rect;
+            GifCanvasRectangle restored_rect = {0};
+            GifCanvasRectangle updated_rect;
+            GifImageDesc *image = &decoder->gif->Image;
+            uint8_t restored_previous = 0;
+            int row;
+
+            if (DGifGetImageHeader(decoder->gif) == GIF_ERROR) {
+                status = gif_decoder_map_error(decoder, decoder->gif->Error);
+                goto fail;
             }
+            if (image->Left < 0 || image->Top < 0 || image->Width <= 0 ||
+                image->Height <= 0 || image->Left > decoder->gif->SWidth ||
+                image->Top > decoder->gif->SHeight ||
+                image->Width > decoder->gif->SWidth - image->Left ||
+                image->Height > decoder->gif->SHeight - image->Top) {
+                status = GIF_STATUS_INVALID_FORMAT;
+                goto fail;
+            }
+            if (image->Interlace) {
+                status = GIF_STATUS_UNSUPPORTED_FEATURE;
+                goto fail;
+            }
+
+            color_map = image->ColorMap != NULL ? image->ColorMap
+                                                : decoder->gif->SColorMap;
+            if (color_map == NULL || color_map->Colors == NULL ||
+                color_map->ColorCount <= 0) {
+                status = GIF_STATUS_INVALID_FORMAT;
+                goto fail;
+            }
+            if (decoder->pending_control.transparent_color !=
+                    NO_TRANSPARENT_COLOR &&
+                decoder->pending_control.transparent_color >=
+                    color_map->ColorCount) {
+                status = GIF_STATUS_INVALID_FORMAT;
+                goto fail;
+            }
+
+            row_buffer =
+                (GifPixelType *)gif_mem_malloc((size_t)image->Width);
+            if (row_buffer == NULL) {
+                status = GIF_STATUS_OUT_OF_MEMORY;
+                goto fail;
+            }
+            if (decoder->pending_background_disposal != 0) {
+                gif_decoder_fill_background_rectangle(
+                    decoder, &decoder->pending_background_rect);
+                restored_rect = decoder->pending_background_rect;
+                decoder->pending_background_disposal = 0;
+                restored_previous = 1;
+            }
+
+            for (row = 0; row < image->Height; row++) {
+                uint8_t *destination;
+                int column;
+
+                if (DGifGetLine(decoder->gif, row_buffer, image->Width) ==
+                    GIF_ERROR) {
+                    status =
+                        gif_decoder_map_error(decoder, decoder->gif->Error);
+                    goto fail;
+                }
+
+                destination = (uint8_t *)decoder->output.pixels +
+                              (size_t)(image->Top + row) *
+                                  decoder->output.stride_bytes +
+                              (size_t)image->Left * 3U;
+                for (column = 0; column < image->Width; column++) {
+                    int palette_index = row_buffer[column];
+                    const GifColorType *color;
+
+                    if (palette_index >= color_map->ColorCount) {
+                        status = GIF_STATUS_INVALID_FORMAT;
+                        goto fail;
+                    }
+                    if (palette_index ==
+                        decoder->pending_control.transparent_color) {
+                        destination += 3;
+                        continue;
+                    }
+                    color = &color_map->Colors[palette_index];
+                    gif_decoder_store_pixel(decoder->output.pixel_format,
+                                            destination, color->Red,
+                                            color->Green, color->Blue);
+                    destination += 3;
+                }
+            }
+
+            gif_mem_free(row_buffer);
+            row_buffer = NULL;
+
+            image_rect.left = (uint32_t)image->Left;
+            image_rect.top = (uint32_t)image->Top;
+            image_rect.width = (uint32_t)image->Width;
+            image_rect.height = (uint32_t)image->Height;
+            if (restored_previous != 0) {
+                uint32_t left = image_rect.left < restored_rect.left
+                                    ? image_rect.left
+                                    : restored_rect.left;
+                uint32_t top = image_rect.top < restored_rect.top
+                                   ? image_rect.top
+                                   : restored_rect.top;
+                uint32_t image_right = image_rect.left + image_rect.width;
+                uint32_t restored_right =
+                    restored_rect.left + restored_rect.width;
+                uint32_t image_bottom = image_rect.top + image_rect.height;
+                uint32_t restored_bottom =
+                    restored_rect.top + restored_rect.height;
+                uint32_t right = image_right > restored_right ? image_right
+                                                               : restored_right;
+                uint32_t bottom = image_bottom > restored_bottom
+                                      ? image_bottom
+                                      : restored_bottom;
+
+                updated_rect.left = left;
+                updated_rect.top = top;
+                updated_rect.width = right - left;
+                updated_rect.height = bottom - top;
+            } else {
+                updated_rect = image_rect;
+            }
+
+            out_frame->frame_index = decoder->frame_index;
+            out_frame->delay_ms = decoder->pending_control.delay_ms;
+            out_frame->image_left = image_rect.left;
+            out_frame->image_top = image_rect.top;
+            out_frame->image_width = image_rect.width;
+            out_frame->image_height = image_rect.height;
+            out_frame->updated_left = updated_rect.left;
+            out_frame->updated_top = updated_rect.top;
+            out_frame->updated_width = updated_rect.width;
+            out_frame->updated_height = updated_rect.height;
+            decoder->pending_background_disposal =
+                decoder->pending_control.disposal_mode == DISPOSE_BACKGROUND;
+            if (decoder->pending_background_disposal != 0) {
+                decoder->pending_background_rect = image_rect;
+            }
+            decoder->frame_index++;
+            gif_decoder_reset_frame_control(&decoder->pending_control);
             return GIF_STATUS_OK;
-        case EXTENSION_RECORD_TYPE:
-            status = gif_decoder_process_extension(decoder);
-            if (status != GIF_STATUS_OK) {
-                return gif_decoder_fail(decoder, status);
+        }
+        case EXTENSION_RECORD_TYPE: {
+            GifByteType *extension = NULL;
+            int extension_code = 0;
+
+            if (DGifGetExtension(decoder->gif, &extension_code, &extension) ==
+                GIF_ERROR) {
+                status = gif_decoder_map_error(decoder, decoder->gif->Error);
+                goto fail;
+            }
+
+            if (extension_code == GRAPHICS_EXT_FUNC_CODE) {
+                GraphicsControlBlock control;
+
+                if (extension == NULL || extension[0] != 4 ||
+                    (extension[1] & 0xe0U) != 0 ||
+                    DGifExtensionToGCB((size_t)extension[0], extension + 1,
+                                       &control) == GIF_ERROR) {
+                    status = GIF_STATUS_INVALID_FORMAT;
+                    goto fail;
+                }
+                if (control.UserInputFlag ||
+                    control.DisposalMode > DISPOSE_BACKGROUND) {
+                    status = GIF_STATUS_UNSUPPORTED_FEATURE;
+                    goto fail;
+                }
+
+                decoder->pending_control.delay_ms =
+                    (uint32_t)control.DelayTime * 10U;
+                decoder->pending_control.transparent_color =
+                    control.TransparentColor;
+                decoder->pending_control.disposal_mode =
+                    (uint8_t)control.DisposalMode;
+
+                if (DGifGetExtensionNext(decoder->gif, &extension) ==
+                    GIF_ERROR) {
+                    status =
+                        gif_decoder_map_error(decoder, decoder->gif->Error);
+                    goto fail;
+                }
+                if (extension != NULL) {
+                    status = GIF_STATUS_INVALID_FORMAT;
+                    goto fail;
+                }
+            } else if (extension_code == PLAINTEXT_EXT_FUNC_CODE) {
+                status = GIF_STATUS_UNSUPPORTED_FEATURE;
+                goto fail;
+            } else {
+                do {
+                    if (DGifGetExtensionNext(decoder->gif, &extension) ==
+                        GIF_ERROR) {
+                        status = gif_decoder_map_error(decoder,
+                                                       decoder->gif->Error);
+                        goto fail;
+                    }
+                } while (extension != NULL);
             }
             break;
+        }
         case TERMINATE_RECORD_TYPE:
             decoder->stream_ended = 1;
             return GIF_STATUS_END_OF_STREAM;
         default:
-            return gif_decoder_fail(decoder, GIF_STATUS_INVALID_FORMAT);
+            status = GIF_STATUS_INVALID_FORMAT;
+            goto fail;
         }
     }
+
+fail:
+    gif_mem_free(row_buffer);
+    decoder->terminal_status = status;
+    return status;
 }
 
 /** @copydoc gif_decoder_core_close */

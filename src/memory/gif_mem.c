@@ -30,9 +30,13 @@
  * @param[in] element_size Bytes per element.
  * @param[out] total_size  Result when multiplication is valid.
  * @return Non-zero when the multiplication is valid.
+ *
+ * This compact check is shared only by the two array-oriented facade calls,
+ * so it remains local and inline rather than becoming another subsystem
+ * boundary.
  */
-static int gif_mem_multiply(size_t count, size_t element_size,
-                            size_t *total_size) {
+static inline int gif_mem_multiply(size_t count, size_t element_size,
+                                   size_t *total_size) {
     if (count == 0U || element_size == 0U ||
         count > SIZE_MAX / element_size) {
         return 0;
