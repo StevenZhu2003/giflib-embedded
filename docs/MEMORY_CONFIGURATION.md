@@ -67,6 +67,12 @@ It means visible image storage is at least as large as the decoder's complete re
 
 With the default 48 KiB pool, the balance condition corresponds to at least 16,384 RGB888 pixels. A 128 × 64 surface does not meet that balance target; 240 × 320 does. Products with smaller outputs can select a smaller pool after measuring their accepted image width, palette usage, failures, and safety margin.
 
+## Choosing `GIF_MEM_POOL_SIZE`
+
+The payload equation above remains the source-level allocation model. A direct calculation does not, by itself, reserve for allocator metadata, alignment, or fragmentation under varied open/decode/close lifetimes. Use [BUILTIN_POOL_SIZING_STUDY.md](BUILTIN_POOL_SIZING_STUDY.md) for the tested profiles and [../tools/gif_builtin_pool_estimate.py](../tools/gif_builtin_pool_estimate.py) to calculate them from product limits.
+
+The script exposes the live decoder limit, maximum image width, retained global/local palettes, palette entries, port-handle payload, ABI structure sizes, TLSF-control size, alignment, and margins. Its default ABI values are verified for 32-bit ARM only. It provides a payload-derived estimate, a balanced profile based on the mixed-lifecycle boundary matrix, and a hardened profile based on the full adverse-lifecycle study. Select the profile matching the product's validation evidence; the hardened profile is not the minimum required for a small, controlled product.
+
 ## Other backends
 
 PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder and its standard dynamic port handles use the same selected provider; total system reservation and fragmentation are properties of that provider.
