@@ -19,9 +19,8 @@
  *
  * Porting checklist:
  * - interpret `source_identifier` without exposing platform types elsewhere;
- * - acquire a per-stream handle or a slot from a port-owned pool;
- * - use gif_porting_mem_alloc() only when a dynamic per-stream handle is
- *   required; return GIF_PORTING_OUT_OF_MEMORY if that allocation fails;
+ * - use gif_porting_mem_alloc() to create one dynamic per-stream handle;
+ *   return GIF_PORTING_OUT_OF_MEMORY if that allocation fails;
  * - set `*out_handle` only after the source is ready for sequential reads;
  * - map every platform failure to `GIF_PORTING_IO_ERROR`.
  *
@@ -71,13 +70,13 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
  *
  * The decoder calls this function exactly once for every successfully opened
  * source transferred to it. Calling it with `NULL` must remain harmless. A
- * dynamic handle allocated with gif_porting_mem_alloc() must be released here
- * after its platform source is closed.
+ * Every dynamic handle allocated with gif_porting_mem_alloc() must be
+ * released here after its platform source is closed.
  *
  * @copydetails gif_porting_close
  */
 void gif_porting_close(GifPortingHandle handle) {
     (void)handle;
 
-    /* TODO(port): Close the platform source and release its handle or slot. */
+    /* TODO(port): Close the platform source and release its dynamic handle. */
 }

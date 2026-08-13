@@ -424,6 +424,7 @@ if(GIFLIB_BUILD_EXAMPLES)
     )
     target_include_directories(gif_embedded_player_example PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
         "${CMAKE_CURRENT_SOURCE_DIR}/examples/embedded_player"
     )
     giflib_apply_common_options(gif_embedded_player_example)

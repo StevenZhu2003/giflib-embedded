@@ -27,7 +27,7 @@ The animation content is project-original work, Copyright (c) 2026 Steven Zhu, a
 - `main.c` owns the player lifecycle, fixed framebuffer, frame loop, display calls, and delay policy.
 - `demo_animation.c` and `demo_animation.h` embed the real GIF asset as read-only C data. `assets/device_boot.gif` is the corresponding source asset.
 - `memory_source.h` is the application resource descriptor passed through `GifDecoderConfig.source_identifier`.
-- `gif_porting.c` adapts that descriptor to the library's forward-only byte source contract. It contains no display or timing work.
+- `gif_porting.c` adapts that descriptor to the library's forward-only byte source contract. It allocates one port-owned cursor per open decoder through the standard porting-memory bridge and contains no display or timing work.
 - `example_platform.h` is the small display, time, and diagnostic boundary used by the player.
 - `hosted_platform.c` is a standard-C reference backend. It writes completed frames as PPM images and uses `clock()` for the application delay.
 

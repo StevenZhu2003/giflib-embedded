@@ -1,6 +1,6 @@
 # Memory configuration
 
-This document sizes decoder-owned memory, including optional dynamic handles owned by `gif_porting.c`. It is intentionally separate from [USER_GUIDE.md](USER_GUIDE.md), which does not prescribe an application's output-storage or display design.
+This document sizes decoder-owned memory, including the standard dynamic handles owned by `gif_porting.c`. It is intentionally separate from [USER_GUIDE.md](USER_GUIDE.md), which does not prescribe an application's output-storage or display design.
 
 ## BUILTIN pool
 
@@ -24,7 +24,7 @@ For the verified 32-bit ARM build:
 D_payload(W) = 26,584 + W bytes
 ```
 
-`D_payload(W)` does not include a port handle. A port that uses the port-only `gif_porting_mem_alloc()` bridge must add the total payload of every simultaneously open wrapper:
+`D_payload(W)` does not include a port handle. The standard port uses the port-only `gif_porting_mem_alloc()` bridge, so add the total payload of every simultaneously open wrapper:
 
 ```text
 H_port(N) = sum of live port-owned handle allocations for N active decoders
@@ -39,7 +39,7 @@ GIF_MEM_POOL_SIZE >= sum(D_payload(W_i), i = 1..N)
                    + safety_margin
 ```
 
-For one active decoder, the sum reduces to `D_payload(W)`. With the current 32-bit ARM default pool, TLSF control metadata is about 1,340 bytes. Per-allocation metadata, alignment rounding, and the pool sentinel also consume capacity. Start with at least a 4 KiB product-specific safety margin, then validate the largest intended resources and the actual allocation pattern.
+For one active decoder, the sum reduces to `D_payload(W) + H_port(1)`. With the current 32-bit ARM default pool, TLSF control metadata is about 1,340 bytes. Per-allocation metadata, alignment rounding, and the pool sentinel also consume capacity. Start with at least a 4 KiB product-specific safety margin, then validate the largest intended resources and the actual allocation pattern.
 
 ## Static-RAM planning
 
@@ -69,7 +69,7 @@ With the default 48 KiB pool, the balance condition corresponds to at least 16,3
 
 ## Other backends
 
-PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder and any opt-in dynamic port handles use the same selected provider; total system reservation and fragmentation are properties of that provider.
+PRIVATE, LIBC, and LVGL do not reserve this library-owned TLSF pool. PRIVATE uses the application's allocator domain; LIBC uses the selected C runtime heap. LVGL reuses the allocator domain already configured by LVGL. In all three cases, the decoder and its standard dynamic port handles use the same selected provider; total system reservation and fragmentation are properties of that provider.
 
 ## LVGL backend
 
