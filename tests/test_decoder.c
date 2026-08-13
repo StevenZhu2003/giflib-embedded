@@ -126,6 +126,41 @@ static const uint8_t gif_interlaced[] = {
     0x3b,
 };
 
+/**
+ * @brief Three-frame GIF combining interlace with composition features.
+ *
+ * The second image is a two-column, eight-row, interlaced local-palette
+ * rectangle. Its transparent pixels retain the first frame's global-palette
+ * background, and its disposal method 2 is applied when the third image
+ * begins. This checks pass ordering independently of canvas composition.
+ */
+static const uint8_t gif_interlaced_composition[] = {
+    'G', 'I', 'F', '8', '9', 'a',
+    0x03, 0x00, 0x08, 0x00, 0x81, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x11, 0x00, 0x00,
+    0x00, 0x22, 0x00, 0x00, 0x00, 0x33,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x08, 0x00, 0x00,
+    0x02, 0x13,
+    0x0c, 0xc3, 0x30, 0x0c, 0xc3, 0x30, 0x0c, 0xc3, 0x30,
+    0x0c, 0xc3, 0x30, 0x0c, 0xc3, 0x30, 0x0c, 0xc3, 0x30,
+    0x05,
+    0x00,
+    0x21, 0xf9, 0x04, 0x09, 0x00, 0x00, 0x00, 0x00,
+    0x2c,
+    0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x08, 0x00, 0xc1,
+    0x00, 0x00, 0x00, 0x44, 0x55, 0x66,
+    0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+    0x02, 0x0d,
+    0x0c, 0x41, 0x71, 0x1c, 0xc1, 0x50, 0x04, 0x43,
+    0x11, 0x1c, 0x43, 0x50, 0x05,
+    0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x54, 0x01, 0x00,
+    0x3b,
+};
+
 /** @brief Three-frame GIF exercising delay, transparency, and GCE scope. */
 static const uint8_t gif_three_frames_with_gce[] = {
     'G', 'I', 'F', '8', '9', 'a',
@@ -645,6 +680,94 @@ static void test_interlaced_row_order(void) {
     gif_decoder_close(decoder);
 }
 
+/**
+ * @brief Compose an interlaced local-palette rectangle into a persistent canvas.
+ *
+ * This verifies that pass row order, transparency, local palette selection,
+ * pending disposal 2, and the reported updated rectangle remain consistent.
+ */
+static void test_interlaced_composition(void) {
+    static const uint8_t expected_right[8][2][3] = {
+        {{0x44, 0x55, 0x66}, {0x11, 0x00, 0x00}},
+        {{0x11, 0x00, 0x00}, {0x44, 0x55, 0x66}},
+        {{0xaa, 0xbb, 0xcc}, {0x11, 0x00, 0x00}},
+        {{0x77, 0x88, 0x99}, {0x11, 0x00, 0x00}},
+        {{0x77, 0x88, 0x99}, {0xaa, 0xbb, 0xcc}},
+        {{0xaa, 0xbb, 0xcc}, {0x44, 0x55, 0x66}},
+        {{0x44, 0x55, 0x66}, {0x77, 0x88, 0x99}},
+        {{0x11, 0x00, 0x00}, {0x77, 0x88, 0x99}},
+    };
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[3 * 8 * 3];
+    int row;
+    int column;
+
+    memory_source_init(&source, gif_interlaced_composition,
+                       sizeof(gif_interlaced_composition));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), 3 * 3,
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 0 && frame.image_left == 0 &&
+          frame.image_width == 3 && frame.image_height == 8);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 1 && frame.image_left == 1 &&
+          frame.image_top == 0 && frame.image_width == 2 &&
+          frame.image_height == 8);
+    CHECK(frame.updated_left == 1 && frame.updated_top == 0 &&
+          frame.updated_width == 2 && frame.updated_height == 8);
+    for (row = 0; row < 8; row++) {
+        size_t row_offset = (size_t)row * 3U * 3U;
+
+        CHECK(pixels[row_offset] == 0x11 &&
+              pixels[row_offset + 1U] == 0x00 &&
+              pixels[row_offset + 2U] == 0x00);
+        for (column = 0; column < 2; column++) {
+            size_t pixel_offset = row_offset + (size_t)(column + 1) * 3U;
+
+            CHECK(pixels[pixel_offset] == expected_right[row][column][0]);
+            CHECK(pixels[pixel_offset + 1U] ==
+                  expected_right[row][column][1]);
+            CHECK(pixels[pixel_offset + 2U] ==
+                  expected_right[row][column][2]);
+        }
+    }
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 2 && frame.image_left == 0 &&
+          frame.image_top == 0 && frame.image_width == 1 &&
+          frame.image_height == 1);
+    CHECK(frame.updated_left == 0 && frame.updated_top == 0 &&
+          frame.updated_width == 3 && frame.updated_height == 8);
+    for (row = 0; row < 8; row++) {
+        for (column = 0; column < 3; column++) {
+            size_t pixel_offset = (size_t)(row * 3 + column) * 3U;
+            uint8_t expected_red = 0x11;
+            uint8_t expected_green = 0x00;
+
+            if (row == 0 && column == 0) {
+                expected_red = 0x00;
+                expected_green = 0x22;
+            }
+            CHECK(pixels[pixel_offset] == expected_red);
+            CHECK(pixels[pixel_offset + 1U] == expected_green);
+            CHECK(pixels[pixel_offset + 2U] == 0x00);
+        }
+    }
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+    gif_decoder_close(decoder);
+}
+
 /** @brief Initialize uncovered canvas pixels from the GIF background color. */
 static void test_partial_frame_background(void) {
     MemorySource source;
@@ -1115,6 +1238,7 @@ int main(void) {
     test_bgr888_and_local_palette();
     test_stride_row_advance();
     test_interlaced_row_order();
+    test_interlaced_composition();
     test_partial_frame_background();
     test_two_streaming_frames();
     test_disposal_composition();
