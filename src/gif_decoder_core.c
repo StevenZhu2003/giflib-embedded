@@ -386,6 +386,8 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
             GifCanvasRectangle updated_rect;
             GifImageDesc *image = &decoder->gif->Image;
             uint8_t restored_previous = 0;
+            int interlace_pass = 0;
+            int interlace_row = 0;
             int row;
 
             if (DGifGetImageHeader(decoder->gif) == GIF_ERROR) {
@@ -400,11 +402,6 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                 status = GIF_STATUS_INVALID_FORMAT;
                 goto fail;
             }
-            if (image->Interlace) {
-                status = GIF_STATUS_UNSUPPORTED_FEATURE;
-                goto fail;
-            }
-
             color_map = image->ColorMap != NULL ? image->ColorMap
                                                 : decoder->gif->SColorMap;
             if (color_map == NULL || color_map->Colors == NULL ||
@@ -437,6 +434,7 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
             for (row = 0; row < image->Height; row++) {
                 uint8_t *destination;
                 int column;
+                int destination_row = row;
 
                 if (DGifGetLine(decoder->gif, row_buffer, image->Width) ==
                     GIF_ERROR) {
@@ -445,8 +443,11 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                     goto fail;
                 }
 
+                if (image->Interlace) {
+                    destination_row = interlace_row;
+                }
                 destination = (uint8_t *)decoder->output.pixels +
-                              (size_t)(image->Top + row) *
+                              (size_t)(image->Top + destination_row) *
                                   decoder->output.stride_bytes +
                               (size_t)image->Left * 3U;
                 for (column = 0; column < image->Width; column++) {
@@ -467,6 +468,18 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                                             destination, color->Red,
                                             color->Green, color->Blue);
                     destination += 3;
+                }
+
+                if (image->Interlace) {
+                    /* GIF stores rows as passes: 0/8, 4/8, 2/4, then 1/2. */
+                    static const int interlace_starts[] = {0, 4, 2, 1};
+                    static const int interlace_steps[] = {8, 8, 4, 2};
+
+                    interlace_row += interlace_steps[interlace_pass];
+                    while (interlace_row >= image->Height &&
+                           ++interlace_pass < 4) {
+                        interlace_row = interlace_starts[interlace_pass];
+                    }
                 }
             }
 

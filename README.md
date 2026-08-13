@@ -42,11 +42,11 @@ vendor/giflib/ ------------------------------ parser + LZW
 ## Supported today
 
 - Forward-only GIF streams through one platform porting file, with explicit short-read, EOF, and I/O-error handling.
-- Streaming non-interlaced RGB888/BGR888 composition with global and local palettes, image rectangles, transparency, timing metadata, and disposal methods 0/1/2.
+- Streaming RGB888/BGR888 composition, including GIF interlace passes, with global and local palettes, image rectangles, transparency, timing metadata, and disposal methods 0/1/2.
 - A caller-owned, complete logical-screen framebuffer and an opaque C99 decoder API.
 - Four selectable decoder-memory backends: BUILTIN fixed pool, PRIVATE provider, LIBC, and LVGL. The default BUILTIN mode has no libc heap dependency.
 
-Interlaced images, disposal method 3, and Graphic Control Extension user-input requests currently return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than being decoded with incorrect semantics. The planned work and its priority are only in [docs/TODO_LIST.md](docs/TODO_LIST.md).
+Disposal method 3 and Graphic Control Extension user-input requests currently return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than being decoded with incorrect semantics. The planned work and its priority are only in [docs/TODO_LIST.md](docs/TODO_LIST.md).
 
 ## Documentation
 

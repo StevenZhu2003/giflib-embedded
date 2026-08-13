@@ -105,14 +105,24 @@ static const uint8_t gif_two_frames_disposal_one[] = {
     0x3b,
 };
 
-/** @brief Interlaced GIF used to verify unsupported-feature reporting. */
+/**
+ * @brief Eight-row interlaced GIF covering every prescribed GIF pass.
+ *
+ * Source rows are stored in pass order 0, 4, 2, 6, 1, 3, 5, 7. Each two-pixel
+ * row has a distinct palette-index pattern, allowing the test to verify that
+ * the decoder writes it to the corresponding logical-screen row.
+ */
 static const uint8_t gif_interlaced[] = {
     'G', 'I', 'F', '8', '9', 'a',
-    0x02, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x11, 0x22, 0x33,
+    0x02, 0x00, 0x08, 0x00, 0x81, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x11, 0x00, 0x00,
+    0x00, 0x22, 0x00, 0x00, 0x00, 0x33,
     0x2c,
-    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x40,
-    0x02, 0x02, 0x44, 0x0a, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x08, 0x00, 0x40,
+    0x02, 0x0d,
+    0x0c, 0xc3, 0x50, 0x0c, 0x47, 0x31, 0x14,
+    0x45, 0x71, 0x1c, 0xc3, 0x51, 0x05,
+    0x00,
     0x3b,
 };
 
@@ -588,6 +598,53 @@ static void test_stride_row_advance(void) {
     gif_decoder_close(decoder);
 }
 
+/** @brief Decode all four GIF interlace passes into their logical row order. */
+static void test_interlaced_row_order(void) {
+    static const uint8_t expected_indices[8][2] = {
+        {1, 1}, {2, 2}, {1, 3}, {2, 3},
+        {1, 2}, {3, 1}, {2, 1}, {3, 2},
+    };
+    static const uint8_t palette[4][3] = {
+        {0x00, 0x00, 0x00}, {0x11, 0x00, 0x00},
+        {0x00, 0x22, 0x00}, {0x00, 0x00, 0x33},
+    };
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[2 * 8 * 3];
+    int row;
+    int column;
+
+    memory_source_init(&source, gif_interlaced, sizeof(gif_interlaced));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), 2 * 3,
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.image_left == 0 && frame.image_top == 0);
+    CHECK(frame.image_width == 2 && frame.image_height == 8);
+    CHECK(frame.updated_left == 0 && frame.updated_top == 0);
+    CHECK(frame.updated_width == 2 && frame.updated_height == 8);
+
+    for (row = 0; row < 8; row++) {
+        for (column = 0; column < 2; column++) {
+            size_t pixel_offset = (size_t)(row * 2 + column) * 3U;
+            uint8_t palette_index = expected_indices[row][column];
+
+            CHECK(pixels[pixel_offset] == palette[palette_index][0]);
+            CHECK(pixels[pixel_offset + 1U] == palette[palette_index][1]);
+            CHECK(pixels[pixel_offset + 2U] == palette[palette_index][2]);
+        }
+    }
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+    gif_decoder_close(decoder);
+}
+
 /** @brief Initialize uncovered canvas pixels from the GIF background color. */
 static void test_partial_frame_background(void) {
     MemorySource source;
@@ -857,9 +914,8 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     gif_decoder_close(decoder);
 }
 
-/** @brief Reject interlace, user input, and restore-to-previous disposal. */
+/** @brief Reject user input and restore-to-previous disposal requests. */
 static void test_unsupported_features(void) {
-    check_unsupported_gif(gif_interlaced, sizeof(gif_interlaced));
     check_unsupported_gif(gif_with_user_input,
                           sizeof(gif_with_user_input));
     /* Disposal method 3 requires a future saved-canvas design. */
@@ -902,6 +958,53 @@ static void test_frame_read_failures(void) {
               GIF_STATUS_UNEXPECTED_EOF);
         gif_decoder_close(decoder);
     }
+}
+
+/** @brief Preserve failure mapping and cleanup when an interlaced image fails. */
+static void test_interlaced_failure_paths(void) {
+    uint8_t malformed[sizeof(gif_interlaced)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[2 * 8 * 3];
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
+    size_t allocations_before = giflib_test_outstanding_allocations();
+#endif
+
+    /* Retain the image data block length but remove its final compressed byte. */
+    memory_source_init(&source, gif_interlaced, sizeof(gif_interlaced) - 4U);
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), 2 * 3,
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_UNEXPECTED_EOF);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_UNEXPECTED_EOF);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1);
+    }
+
+    memcpy(malformed, gif_interlaced, sizeof(malformed));
+    malformed[35] = 9; /* GIF LZW minimum code size cannot exceed 8. */
+    decoder = NULL;
+    memory_source_init(&source, malformed, sizeof(malformed));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), 2 * 3,
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_INVALID_FORMAT);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_INVALID_FORMAT);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1);
+    }
+
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+#endif
 }
 
 /** @brief Map invalid LZW parameters to an invalid-format status. */
@@ -1011,6 +1114,7 @@ int main(void) {
     test_rgb888_and_stride();
     test_bgr888_and_local_palette();
     test_stride_row_advance();
+    test_interlaced_row_order();
     test_partial_frame_background();
     test_two_streaming_frames();
     test_disposal_composition();
@@ -1020,6 +1124,7 @@ int main(void) {
     test_invalid_graphics_control();
     test_unsupported_features();
     test_frame_read_failures();
+    test_interlaced_failure_paths();
     test_malformed_image_data();
     test_frame_oom_mapping();
     test_repeated_streaming_decode();
