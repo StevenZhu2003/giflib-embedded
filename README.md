@@ -1,18 +1,20 @@
 # Portable GIF Decoder for Embedded Systems Based on giflib
 
-`giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded systems. It retains giflib's mature parser and LZW decoder while placing fixed public, private, and porting boundaries between the decoder and platform-specific storage, display, timing, and operating-system services.
+`giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded systems that need to play GIF resources from a sequential byte source. It retains giflib's mature parser and LZW decoder while placing fixed public, private, and porting boundaries between the decoder and platform-specific storage, display, timing, and operating-system services.
 
 > **Upstream attribution:** This project incorporates and modifies substantial source code from giflib and the TLSF allocator. The original authors retain copyright in their respective code. giflib-derived sources retain their MIT license terms, while TLSF-derived sources retain Matthew Conte's BSD-3-Clause notice; the LVGL integration lineage is also recorded. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the exact file boundaries, upstream revisions and changes, omitted components, and project-original files.
 
 The project is derived from giflib 6.1.3 and is currently under active development. The low-level `gif_lib.h` interface is retained internally during the migration; it is not intended to be the final application-facing API.
+
+The input is consumed forward-only, so the complete GIF resource does not need to reside in RAM. The decoder intentionally composes each frame into a complete logical-screen framebuffer supplied and owned by the caller. This makes every successful frame ready for presentation and keeps display hand-off outside the library; it is a predictable composition boundary, not an attempt to target the smallest possible RAM footprint.
 
 ## Design goals
 
 - Stream input through the target's forward-only porting implementation.
 - Avoid `stdio`, filesystem APIs, an RTOS, and target-specific dependencies in the decoder core.
 - Decode incrementally without `DGifSlurp()` or accumulating `SavedImages`.
-- Composite frames into a framebuffer owned by the caller.
-- Keep display, cache management, and frame delays in the application, and storage access exclusively in `port/gif_porting.c`.
+- Composite frames into one complete framebuffer owned by the caller.
+- Keep display, cache management, scheduling, and frame delays in the application, and storage access exclusively in `port/gif_porting.c`.
 - Make decoder-owned dynamic memory explicit, bounded, and independent of the C library heap by default.
 - Preserve the proven giflib parser and LZW implementation with minimal, documented changes.
 
@@ -40,23 +42,23 @@ vendor/giflib/ ------------------------------ parser + LZW
 ## Supported today
 
 - Forward-only GIF streams through one platform porting file, with explicit short-read, EOF, and I/O-error handling.
-- Streaming non-interlaced RGB888/BGR888 composition with global/local palettes, image rectangles, transparency, timing metadata, and disposal methods 0/1.
-- Caller-owned framebuffer, opaque decoder API, and C99 host/cross builds.
-- Selectable BUILTIN fixed-pool, PRIVATE provider, LIBC, or LVGL allocator backends; the default BUILTIN mode has no libc heap dependency.
+- Streaming non-interlaced RGB888/BGR888 composition with global and local palettes, image rectangles, transparency, timing metadata, and disposal methods 0/1.
+- A caller-owned, complete logical-screen framebuffer and an opaque C99 decoder API.
+- Four selectable decoder-memory backends: BUILTIN fixed pool, PRIVATE provider, LIBC, and LVGL. The default BUILTIN mode has no libc heap dependency.
 
-Unsupported GIF features return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than being decoded with incorrect semantics. See [docs/TODO_LIST.md](docs/TODO_LIST.md) for planned work and priority.
+Interlaced images, disposal methods 2/3, and Graphic Control Extension user-input requests currently return `GIF_STATUS_UNSUPPORTED_FEATURE` rather than being decoded with incorrect semantics. The planned work and its priority are only in [docs/TODO_LIST.md](docs/TODO_LIST.md).
 
-## Getting started
+## Documentation
 
-The complete application integration and API tutorial is [docs/USER_GUIDE.md](docs/USER_GUIDE.md). It covers memory backend selection, the single storage-port boundary, decoder lifecycle, and status handling. The guide intentionally leaves output-storage, display, and timing policy to the application.
-
-Fixed-pool sizing and static-RAM planning are retained separately in [docs/MEMORY_CONFIGURATION.md](docs/MEMORY_CONFIGURATION.md).
-
-For a runnable reference application, see [examples/embedded_player](examples/embedded_player/README.md). The detailed platform byte-source contract is in [docs/PORTING_GUIDE.md](docs/PORTING_GUIDE.md).
+- [User Guide](docs/USER_GUIDE.md): application configuration, public API, and one complete decode lifecycle.
+- [Porting Guide](docs/PORTING_GUIDE.md): the platform-neutral byte-source contract and reference ports.
+- [Memory Configuration](docs/MEMORY_CONFIGURATION.md): backend selection, fixed-pool sizing, lifecycle, and RAM planning.
+- [Embedded player example](examples/embedded_player/README.md): a hosted, platform-independent reference application with a real animation resource.
+- [Project TODO list](docs/TODO_LIST.md): planned work and priority; it is not a feature promise.
 
 ## Dependencies
 
-The library requires C99 and basic memory/string operations such as `memset` and `memcpy`. The default BUILTIN configuration has no C-library heap dependency. The fixed facade and hidden core do not open files and have no direct filesystem dependency; only the user-supplied `port/gif_porting.c` may perform storage I/O. The optional LVGL backend requires an application-provided LVGL 8.4 or 9.x library and uses only its public allocator API.
+The library requires C99 and basic memory/string operations such as `memset` and `memcpy`. Its public facade and hidden core do not open files or depend on a filesystem; only the user-supplied `port/gif_porting.c` performs source I/O. BUILTIN has no C-library heap dependency. The optional LVGL backend requires an application-provided LVGL 8.4 or 9.x library and uses only its public allocator API.
 
 FatFs is not bundled, linked, or required by this repository. The Porting Guide contains a project-original FatFs integration example for users who already provide FatFs in a parent project. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the precise bundled versus referenced dependency boundary.
 
@@ -68,25 +70,7 @@ FatFs is not bundled, linked, or required by this repository. The Porting Guide 
 - `vendor/`: upstream-derived or modified third-party libraries, including the giflib parser/LZW code and the TLSF allocator.
 - `tests/`: host-side regression tests and memory-backed test port.
 - `examples/`: complete applications with their own porting implementation.
-- `docs/`: the user guide, detailed porting guide, roadmap, design records, and source documentation convention.
-- `docs/USER_GUIDE.md`: the single application API and integration tutorial.
-- `CMakeLists.txt`: host and cross-compilation build definition.
-
-## Source documentation
-
-Project-original C code uses a Doxygen-compatible embedded-library style for files, functions, callbacks, types, constants, fields, and non-obvious implementation decisions. The complete convention is recorded in [docs/COMMENTING_STYLE.md](docs/COMMENTING_STYLE.md). Existing comments in giflib-derived files intentionally remain in their upstream form and are not restyled merely for visual consistency.
-
-## Upstream changes
-
-Changes to the upstream-derived parser/LZW code are deliberately limited to portability and correctness fixes:
-
-- removed unused stdio, POSIX, and Windows file-I/O headers;
-- made the private header self-contained for fixed-width integer macros;
-- made image pixel-count multiplication safe on 32-bit targets;
-- retained the specific logical-screen read or allocation error from `DGifOpen()`;
-- routed all retained giflib allocation sites through the project-private allocator facade, retaining `reallocarray` overflow and zero-size semantics.
-
-The encoder, command-line utilities, file-opening helpers, and upstream build system are not included.
+- `docs/`: guides, memory/configuration records, and the project roadmap.
 
 ## License and attribution
 
