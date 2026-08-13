@@ -44,7 +44,7 @@ The future public names should be distinct from the implementation facade, such 
 
 An application can use the same physical RAM budget for a U8g2 display buffer and the GIF decoder, but it should not currently obtain that buffer via `gif_mem_malloc()`. U8g2 supports application-supplied display buffers in configurations that allow a caller-provided buffer; the application should allocate or statically reserve that buffer in its own allocator domain and keep it alive for U8g2's documented lifetime.
 
-Sharing the current BUILTIN pool would create practical risks: U8g2 allocation may fragment the decoder pool, GIF playback could fail after display setup, and a global unsynchronized pool would couple independent subsystem lifetimes. The [memory-sizing formula](MEMORY_CONFIGURATION.md) assumes the framebuffer is separately owned. A later explicit `GifMemoryService` could support this use case only after it offers a capacity budget, outstanding-allocation accounting, and clear application serialization/locking rules.
+Sharing the current BUILTIN pool would create practical risks: U8g2 allocation may fragment the decoder pool, GIF playback could fail after display setup, and a global unsynchronized pool would couple independent subsystem lifetimes. The [Memory Configuration](MEMORY_CONFIGURATION.md) profiles assume the framebuffer is separately owned. A later explicit `GifMemoryService` could support this use case only after it offers a capacity budget, outstanding-allocation accounting, and clear application serialization/locking rules.
 
 ## Backend implications
 

@@ -51,7 +51,7 @@ Run the executable from the directory where you want its frame captures. It crea
 
 1. Keep the application flow in `main.c`, or fold `application_play_gif()` into the target's application task.
 2. Implement the functions from `example_platform.h` in a target-owned source file. Present the supplied RGB888 framebuffer, implement the delay using the target's normal timing service, and route diagnostics to a log channel or a no-op function.
-3. Keep `gif_porting.c` unchanged when GIF resources are compiled into memory. For flash, a filesystem, a network stream, or another source, implement the stable open/read/close contract in the library's single porting file.
+3. Keep `gif_porting.c` unchanged when GIF resources are compiled into memory. For flash, a filesystem, a network stream, or another source, implement the stable open/read/close contract in the one active porting file and retain its one-dynamic-handle-per-open ownership model. See the [Porting Guide](../../docs/PORTING_GUIDE.md).
 4. Size `EXAMPLE_MAX_CANVAS_WIDTH`, `EXAMPLE_MAX_CANVAS_HEIGHT`, and the static framebuffer for the largest animation accepted by the product.
 5. Replace `demo_animation.c` with product artwork or another resource descriptor. The public decoder calls and display loop do not change.
 

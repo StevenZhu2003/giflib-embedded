@@ -12,7 +12,7 @@ balanced mixed-use profile: W + 32 KiB + 40 KiB × N + H_port(N)
 hardened stress profile:  W + 128 KiB + 64 KiB × N + H_port(N)
 ```
 
-The balanced profile is a simple envelope over the observed mixed random-workload boundary matrix. The hardened profile passed every declared adverse-lifecycle test and is intentionally much larger. A dependency-free calculator, [`tools/gif_builtin_pool_estimate.py`](../tools/gif_builtin_pool_estimate.py), combines these empirical profiles with the concrete decoder, palette, port-handle, TLSF-control, alignment, and margin inputs.
+The balanced profile is a simple envelope over the observed mixed random-workload boundary matrix. The hardened profile passed every declared adverse-lifecycle test and is intentionally much larger. The dependency-free [`tools/estimate_builtin_pool.py`](../tools/estimate_builtin_pool.py) calculator combines these profiles with declared decoder, palette, port-handle, TLSF-control, alignment, and margin inputs.
 
 The hardened candidate was tested as:
 
@@ -144,62 +144,13 @@ At N=32, the same tested candidate was exercised for 100,000 operations with fiv
 
 The pool did fragment transiently while live decoders had varied shapes and lifetimes; this is expected in a general allocator. Periodic trace samples showed values changing with the live allocation mix rather than a monotonic, irreversible loss of free capacity. Exact restoration after all decoders closed is checked separately and passed in every run. This is evidence against leak or failed coalescing in the exercised paths, not a claim that fragmentation can never occur.
 
-## Choosing an estimate profile
+## Interpretation and scope
 
-The fixed decoder state, the retained palettes, the one active row buffer, and the port handle are real components. The scripted payload model exposes them rather than concealing them inside a single per-decoder constant:
+The fixed decoder state, retained palettes, one active row buffer, and port handle are real, separate components. The row term is one `W`, not `N × W`, because this study uses the documented serialized `gif_decoder_next_frame()` call contract. One global and one local palette may exist for every live decoder, so conservative declared palette counts are both `N`.
 
-```text
-payload = N × fixed_decoder_state
-        + global_palette_count × palette_size
-        + local_palette_count × palette_size
-        + one active row buffer (W)
-        + N × port_handle_size
-        + TLSF control + ABI/alignment reserve
-```
+The boundary search deliberately included undersized candidates. They produced capacity and external-fragmentation OOM telemetry during screening and confirmation, while passing candidates still had to pass full seeds, pool-integrity checks, exact post-close restoration, and a post-workload corpus pass. A short candidate pass was never published as a no-OOM boundary. This distinction is why the study describes an observed typical boundary, a mixed-use profile, and a hardened profile rather than one universal minimum.
 
-One global and one local palette may exist for every live decoder, so the worst-case default palette counts are both `N`. The row term is one `W` because the current public contract serializes `gif_decoder_next_frame()` calls; it is not `N × W`.
-
-Use the calculator to select one of these profiles:
-
-| Profile | Calculation | Appropriate use | Evidence level |
-| --- | --- | --- | --- |
-| Payload-derived | Exact declared components plus an adjustable ABI/metadata reserve | A controlled product that has measured its own corpus and runs its own no-OOM regression | Arithmetic estimate; not a fragmentation guarantee |
-| Balanced mixed-use | `max(payload-derived estimate + 16 KiB, W + 32 KiB + 40 KiB × N + H_port(N))` | Normal serialized mixed open/decode/close usage with a known width and concurrency limit | Encloses the observed random-workload boundary matrix; validate the product corpus |
-| Hardened stress | `max(payload-derived estimate + 128 KiB, W + 128 KiB + 64 KiB × N + H_port(N))` | Products that prefer a stronger margin against varied lifetimes, holes, source errors, and wide transient rows | Passed the declared 115-run adversarial study |
-
-For example, a one-decoder product limited to 320-pixel image width with a 64-byte port wrapper does not need a 2.2 MiB N=32/60,000-pixel budget. On the verified ARM32 defaults, the calculator's payload-derived result is about 36 KiB, the balanced profile about 72 KiB, and the hardened profile about 192 KiB. The appropriate selection depends on whether the product has its own corpus validation and how much failure margin it requires.
-
-Run the calculator from the repository root with any standard Python 3 installation; it has no external dependencies:
-
-```powershell
-python tools/gif_builtin_pool_estimate.py `
-    --live-decoders 1 `
-    --max-row-width 320 `
-    --port-handle-bytes 64
-```
-
-Pass `--global-palettes`, `--local-palettes`, `--palette-entries`, or the ABI-size overrides when the product has tighter documented limits or is not the verified 32-bit ARM ABI. `--json` makes the same calculation easy to consume from a build or RAM-planning script.
-
-For orientation only, the following examples use the verified ARM32 defaults, 256-entry global and local palettes, and a 64-byte port wrapper. They show why the profiles depend on the declared envelope instead of using one universal multiplier:
-
-| N | Maximum width | Payload-derived | Balanced | Hardened |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 320 | 35.65 KiB | 72.38 KiB | 192.38 KiB |
-| 1 | 800 | 36.12 KiB | 72.84 KiB | 192.84 KiB |
-| 2 | 800 | 62.15 KiB | 112.91 KiB | 256.91 KiB |
-| 4 | 1,920 | 115.31 KiB | 194.12 KiB | 386.12 KiB |
-| 8 | 4,096 | 221.56 KiB | 356.50 KiB | 644.50 KiB |
-
-Every profile is limited by the same fundamental conditions:
-
-- `N` is a real upper bound on concurrently open decoders;
-- `W` is a real upper bound on every accepted image descriptor width, not merely a preferred canvas size;
-- the application serializes access to the BUILTIN backend;
-- the port handle allocation is included in `H_port(N)` and uses `gif_porting_mem_alloc()`;
-- the GIF allocator pool is not also used for application-owned buffers or unrelated components; and
-- the product validates its own largest intended GIFs, storage implementation, and error handling.
-
-The RGB888/BGR888 framebuffer remains caller-owned and must be added separately to the device RAM plan. None of these profiles covers arbitrary application allocations, invalid use after close, unbounded port caches, concurrent calls from threads or interrupts, GIFs outside the product's declared width limit, or a mathematical proof for all possible inputs.
+The user-facing profile selection, calculator invocation, orientation matrix, framebuffer boundary, and all product limits are maintained in [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md). The calculator is a planning utility, not a proof tool. None of this study covers arbitrary application allocations, unbounded port caches, calls from threads or interrupt contexts, a production handle larger than `H_port(N)`, or GIFs outside the declared limits.
 
 ## Reproduction material
 

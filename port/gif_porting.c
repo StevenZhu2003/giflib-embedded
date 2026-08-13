@@ -69,7 +69,7 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
  * @brief Close the target source and release only port-owned resources.
  *
  * The decoder calls this function exactly once for every successfully opened
- * source transferred to it. Calling it with `NULL` must remain harmless. A
+ * source transferred to it. Calling it with `NULL` must remain harmless.
  * Every dynamic handle allocated with gif_porting_mem_alloc() must be
  * released here after its platform source is closed.
  *

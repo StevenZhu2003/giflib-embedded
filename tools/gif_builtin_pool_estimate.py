@@ -3,7 +3,8 @@
 
 This utility is dependency-free.  It does not inspect GIF files or prove that
 a chosen capacity is sufficient; it turns explicit application limits into the
-profiles documented in docs/BUILTIN_POOL_SIZING_STUDY.md.
+profiles documented in docs/MEMORY_CONFIGURATION.md. It is a planning utility,
+not a proof that an arbitrary corpus cannot exhaust a finite pool.
 
 Copyright (c) 2026 Steven Zhu
 SPDX-License-Identifier: MIT
