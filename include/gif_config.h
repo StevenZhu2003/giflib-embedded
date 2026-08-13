@@ -41,8 +41,9 @@
 /**
  * @brief Bytes managed by the BUILTIN allocator's single fixed pool.
  *
- * 48 KiB is the initial embedded recommendation. The framebuffer is always
- * application-owned and is not allocated from this pool.
+ * 48 KiB is a build default, not a universal production recommendation. Size
+ * the pool from the declared product envelope and validation evidence. The
+ * framebuffer is always application-owned and is not allocated from this pool.
  */
 #ifndef GIF_MEM_POOL_SIZE
 #define GIF_MEM_POOL_SIZE (48U * 1024U)

@@ -701,7 +701,7 @@ The repository host tests use a separate memory-backed test port to verify the s
 
 ## 10. Configure decoder memory
 
-Memory configuration is deliberately separate from byte-source porting. Select the backend through `GIF_MEM_BACKEND` in `gif_config.h`; the default value is `GIF_MEM_USE_BUILTIN`. BUILTIN uses the fixed pool configured by `GIF_MEM_POOL_SIZE`; PRIVATE adds the independent `port/gif_mem_private.c` porting point; LIBC requires no allocator port. For the definitive configuration contract, private-provider rules, and RAM-sizing formulas, see [USER_GUIDE.md](USER_GUIDE.md) and [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md).
+Memory configuration is deliberately separate from byte-source porting. The port uses `gif_porting_mem_alloc()` and `gif_porting_mem_free()` only to create and release its per-stream handle in the selected decoder allocator domain. They are not application APIs. Select the backend, size a BUILTIN pool, or implement the independent PRIVATE provider according to [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md).
 
 ## 11. Diagnose common failures
 

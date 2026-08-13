@@ -33,17 +33,9 @@ For fixed-pool sizing and static-RAM planning, see [MEMORY_CONFIGURATION.md](MEM
 
 The decoder consumes sequential bytes. Before use, implement the open/read/close operations in the single target-owned file `port/gif_porting.c`. The application selects a resource through `GifDecoderConfig.source_identifier`; the port alone interprets that opaque value and obtains bytes from the target.
 
-The port must follow these non-negotiable rules:
+The port does not need a pathname, filesystem, seek operation, file size, or a specific SDK. Its standard workflow creates one independently allocated handle per successful open with the port-only `gif_porting_mem_alloc()` bridge and releases it from close with `gif_porting_mem_free()`. This bridge shares the selected decoder allocator domain but is not an application interface: application code never includes its header or calls its functions. A required handle allocation failure is reported by `gif_decoder_open()` as `GIF_STATUS_OUT_OF_MEMORY`.
 
-- open returns a non-null handle only after complete success;
-- every read reports its actual byte count and never exceeds the requested count;
-- a successful read must make progress, so it must not report OK with zero bytes;
-- EOF means no later byte is available, and may accompany final valid bytes; and
-- close is null-safe and releases every successfully opened source exactly once.
-
-The port does not need a pathname, filesystem, seek operation, file size, or a specific SDK. The standard port creates one dynamically allocated handle per open source with the port-only `gif_porting_memory.h` bridge. This shares the selected decoder-memory provider but is not an application interface: application code never includes that header or calls its functions. A required handle allocation failure is reported by `gif_decoder_open()` as `GIF_STATUS_OUT_OF_MEMORY`.
-
-Follow [PORTING_GUIDE.md](PORTING_GUIDE.md) before integrating the API. It is the authoritative tutorial and contract for the dynamic-handle implementation, ownership, cleanup, source-read status mapping, pool budgeting, and generic, FatFs, and memory-backed reference ports. Its imaginary `storage_open()`, `storage_read()`, and `storage_close()` names are teaching placeholders for the target's own byte-source operations.
+Follow [PORTING_GUIDE.md](PORTING_GUIDE.md) before integrating the API. It is the authoritative contract for dynamic-handle ownership, read byte counts and terminal statuses, cleanup, pool budgeting, and generic, FatFs, and memory-backed reference ports. Its imaginary `storage_open()`, `storage_read()`, and `storage_close()` names are teaching placeholders for the target's own byte-source operations.
 
 ### 1.3 Prepare application services
 
@@ -149,7 +141,7 @@ Every public operation returns a `GifStatus` unless otherwise specified.
 | `GIF_STATUS_UNEXPECTED_EOF` | Input ended before a complete GIF structure. Treat the resource as truncated or diagnose read progress. |
 | `GIF_STATUS_INVALID_FORMAT` | The resource is not a valid supported GIF. Reject or replace it. |
 | `GIF_STATUS_UNSUPPORTED_FEATURE` | The GIF uses intentionally unimplemented semantics. Reject it or consult [TODO_LIST.md](TODO_LIST.md). |
-| `GIF_STATUS_BUFFER_TOO_SMALL` | The bound output storage capacity or stride cannot represent the canvas. Provide a valid surface before retrying with a new decoder. |
+| `GIF_STATUS_BUFFER_TOO_SMALL` | The proposed output storage capacity or stride cannot represent the canvas. Provide a valid surface and call `gif_decoder_bind_output()` again. |
 | `GIF_STATUS_INTERNAL_ERROR` | An internal invariant failed. Close, preserve diagnostics, and report a reproducible case. |
 | `GIF_STATUS_INVALID_STATE` | A function was called in the wrong lifecycle state. Correct the call order. |
 

@@ -28,7 +28,7 @@ typedef enum GifStatus {
     GIF_STATUS_IO_ERROR = 4,            /**< The byte source reported an error. */
     GIF_STATUS_UNEXPECTED_EOF = 5,      /**< Input ended before data was complete. */
     GIF_STATUS_INVALID_FORMAT = 6,      /**< Input is not a valid supported GIF. */
-    GIF_STATUS_UNSUPPORTED_FEATURE = 7, /**< GIF feature is not implemented yet. */
+    GIF_STATUS_UNSUPPORTED_FEATURE = 7, /**< GIF semantic is intentionally unsupported. */
     GIF_STATUS_BUFFER_TOO_SMALL = 8,    /**< Output capacity or stride is too small. */
     GIF_STATUS_INTERNAL_ERROR = 9,      /**< Unexpected internal decoder failure. */
     GIF_STATUS_INVALID_STATE = 10       /**< Operation is invalid in current state. */

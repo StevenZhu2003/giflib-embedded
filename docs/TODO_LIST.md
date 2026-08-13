@@ -33,6 +33,7 @@ No work is currently scheduled at this priority.
 - Consider a maintained real-hardware reference or reproducible benchmark only when a target integration can be built, run, and maintained without placing a vendor SDK or board policy in the core repository.
 - Evaluate a port-layer read-ahead example for storage backends only after target measurements show that small sequential reads are a bottleneck; do not add filesystem-specific buffering to the decoder.
 - Consider an LVGL integration example only when it can test a supported LVGL release as a real consumer, rather than duplicating the existing allocator mock coverage.
+- Consider corpus-specific host-side sizing tooling only when it can accept a real GIF corpus, declared concurrency and lifecycle constraints, and an equivalent production allocator path. It should search a minimum passing pool and report measured, Balanced, and Hardened recommendations; optional fragmentation stress must remain optional rather than becoming a target dependency.
 
 ### Stage 12 — Optional public Memory API
 
