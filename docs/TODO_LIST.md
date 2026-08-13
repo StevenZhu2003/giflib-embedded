@@ -6,18 +6,12 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 
 ## HIGH — next work
 
-### Stage 6 — Disposal method 2 and composition regression coverage
-
-- Implement GIF disposal method 2 (restore to background) without changing the public decoder lifecycle or output-surface ownership model.
-- Extend multi-frame regression coverage for disposal methods 0/1/2, partial rectangles, transparency, global and local palettes, background initialization, repeated disposal-2 frames, cleanup, and updated-rectangle reporting.
-- Document the implemented composition rules alongside the feature so callers know that the bound canvas remains the complete composited visual state.
-
-## MID-HIGH — planned after the immediate work
-
 ### Stage 7 — Interlaced image decoding
 
 - Decode interlaced GIF rows in their prescribed pass order while retaining the forward-only input contract and one-row working-buffer model.
 - Replace the current intentional rejection with valid/interrupted/malformed interlace regression cases.
+
+## MID-HIGH — planned after the immediate work
 
 ### Stage 8 — Compatibility corpus and host-side malformed-input hardening
 

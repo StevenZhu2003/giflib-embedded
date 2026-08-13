@@ -131,7 +131,7 @@ The library copies the descriptor, not the pixel data. The storage it identifies
 | `updated_left`, `updated_top` | Origin of the canvas rectangle reported as updated. |
 | `updated_width`, `updated_height` | Dimensions of the reported updated rectangle. |
 
-The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. At the current feature level, the reported updated rectangle conservatively equals the image rectangle.
+The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. The reported updated rectangle conservatively covers the image rectangle and, when the preceding frame used disposal method 2, the rectangle restored to the logical background immediately before this frame was composed. It may therefore include transparent or otherwise visually unchanged pixels.
 
 #### `GifStatus`
 

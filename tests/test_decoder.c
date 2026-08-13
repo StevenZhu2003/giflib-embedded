@@ -161,16 +161,51 @@ static const uint8_t gif_with_user_input[] = {
     0x3b,
 };
 
-/** @brief GIF using restore-to-background disposal for rejection testing. */
-static const uint8_t gif_with_disposal_two[] = {
+/**
+ * @brief Four-frame composition sequence covering GIF disposal modes 0/1/2.
+ *
+ * The sequence leaves the first global-palette pixel in place, restores two
+ * successive partial rectangles to the global background, uses a local palette
+ * for the second restored image, and ends with a transparent global-palette
+ * image. It therefore also exercises conservative updated-rectangle reporting.
+ */
+static const uint8_t gif_disposal_composition[] = {
     'G', 'I', 'F', '8', '9', 'a',
-    0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x11, 0x22, 0x33,
+    0x03, 0x00, 0x01, 0x00, 0x81, 0x00, 0x00,
+    0x10, 0x20, 0x30, 0x11, 0x22, 0x33,
+    0x44, 0x55, 0x66, 0xaa, 0xbb, 0xcc,
+    0x21, 0xf9, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x4c, 0x01, 0x00,
     0x21, 0xf9, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00,
+    0x2c,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x54, 0x01, 0x00,
+    0x21, 0xf9, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00,
+    0x2c,
+    0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x80,
+    0x00, 0x00, 0x00, 0x77, 0x88, 0x99,
+    0x02, 0x02, 0x4c, 0x01, 0x00,
+    0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00,
     0x2c,
     0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
     0x02, 0x02, 0x44, 0x01, 0x00,
     0x3b,
+};
+
+/** @brief Disposal-2 stream that ends during the following image payload. */
+static const uint8_t gif_disposal_two_truncated_next_image[] = {
+    'G', 'I', 'F', '8', '9', 'a',
+    0x02, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+    0x10, 0x20, 0x30, 0x11, 0x22, 0x33,
+    0x21, 0xf9, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00,
+    0x2c,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02, 0x02, 0x4c, 0x01, 0x00,
+    0x2c,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    0x02,
 };
 
 /**
@@ -609,6 +644,96 @@ static void test_two_streaming_frames(void) {
     gif_decoder_close(decoder);
 }
 
+/**
+ * @brief Compose disposal 0/1/2 frames into one persistent canvas.
+ *
+ * Method 2 is deferred until the next image starts. Each affected frame
+ * therefore reports a rectangle covering both the restored prior area and its
+ * own image rectangle, including when the current image is transparent.
+ */
+static void test_disposal_composition(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[9];
+
+    memory_source_init(&source, gif_disposal_composition,
+                       sizeof(gif_disposal_composition));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(pixels[0] == 0x10 && pixels[1] == 0x20 && pixels[2] == 0x30);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 0 && frame.image_left == 0);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 1);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 1 && frame.image_left == 1);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 1);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x44 && pixels[4] == 0x55 && pixels[5] == 0x66);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 2 && frame.image_left == 2);
+    CHECK(frame.updated_left == 1 && frame.updated_top == 0);
+    CHECK(frame.updated_width == 2 && frame.updated_height == 1);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x77 && pixels[7] == 0x88 && pixels[8] == 0x99);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.frame_index == 3 && frame.image_left == 0);
+    CHECK(frame.updated_left == 0 && frame.updated_top == 0);
+    CHECK(frame.updated_width == 3 && frame.updated_height == 1);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+    gif_decoder_close(decoder);
+}
+
+/** @brief Release all allocations after disposal-2 decode failure paths. */
+static void test_disposal_two_failure_cleanup(void) {
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+    size_t allocations_before = giflib_test_outstanding_allocations();
+
+    memory_source_init(&source, gif_disposal_two_truncated_next_image,
+                       sizeof(gif_disposal_two_truncated_next_image));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_UNEXPECTED_EOF);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_UNEXPECTED_EOF);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+#endif
+}
+
 /** @brief Apply GCE delay and transparency only to their associated frames. */
 static void test_graphics_control_scope(void) {
     MemorySource source;
@@ -716,7 +841,7 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
     GifFrameInfo frame;
-    uint8_t pixels[6];
+    uint8_t pixels[9];
 
     memory_source_init(&source, data, size);
     CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
@@ -732,13 +857,19 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     gif_decoder_close(decoder);
 }
 
-/** @brief Reject interlace, user input, and unsupported disposal modes. */
+/** @brief Reject interlace, user input, and restore-to-previous disposal. */
 static void test_unsupported_features(void) {
     check_unsupported_gif(gif_interlaced, sizeof(gif_interlaced));
     check_unsupported_gif(gif_with_user_input,
                           sizeof(gif_with_user_input));
-    check_unsupported_gif(gif_with_disposal_two,
-                          sizeof(gif_with_disposal_two));
+    /* Disposal method 3 requires a future saved-canvas design. */
+    {
+        uint8_t unsupported[sizeof(gif_disposal_composition)];
+
+        memcpy(unsupported, gif_disposal_composition, sizeof(unsupported));
+        unsupported[28] = 0x0c; /* Change first GCE disposal to method 3. */
+        check_unsupported_gif(unsupported, sizeof(unsupported));
+    }
 }
 
 /** @brief Distinguish port read I/O failure from EOF during frame decoding. */
@@ -882,6 +1013,8 @@ int main(void) {
     test_stride_row_advance();
     test_partial_frame_background();
     test_two_streaming_frames();
+    test_disposal_composition();
+    test_disposal_two_failure_cleanup();
     test_graphics_control_scope();
     test_graphics_control_before_comment();
     test_invalid_graphics_control();

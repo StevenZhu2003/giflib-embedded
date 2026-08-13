@@ -73,9 +73,9 @@ typedef struct GifOutputSurface {
  *
  * Frame indices are zero-based. Delay is the exact GIF centisecond value
  * converted to milliseconds; zero remains zero and timing policy belongs to
- * the application. At the current stage the updated rectangle conservatively
- * equals the image rectangle even when transparent pixels remain unchanged;
- * later disposal modes may expand it.
+ * the application. The updated rectangle conservatively covers the image
+ * rectangle even when transparent pixels remain unchanged and, when disposal
+ * method 2 restores the preceding frame, the restored rectangle as well.
  */
 typedef struct GifFrameInfo {
     uint32_t frame_index;    /**< Zero-based decoded frame number. */

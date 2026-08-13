@@ -25,7 +25,16 @@ typedef enum GifSourceTerminal {
 typedef struct GifFrameControl {
     int transparent_color;  /**< Palette index skipped during composition. */
     uint32_t delay_ms;      /**< Frame delay converted from centiseconds. */
+    uint8_t disposal_mode;  /**< Disposal instruction for the next image. */
 } GifFrameControl;
+
+/** @brief Valid canvas rectangle remembered for composition bookkeeping. */
+typedef struct GifCanvasRectangle {
+    uint32_t left;   /**< Zero-based canvas column of the rectangle. */
+    uint32_t top;    /**< Zero-based canvas row of the rectangle. */
+    uint32_t width;  /**< Rectangle width in pixels. */
+    uint32_t height; /**< Rectangle height in pixels. */
+} GifCanvasRectangle;
 
 /** @brief Internal state hidden behind the public opaque decoder handle. */
 struct GifDecoder {
@@ -35,9 +44,11 @@ struct GifDecoder {
     GifOutputSurface output;           /**< Copied caller output descriptor. */
     GifStatus terminal_status;         /**< Sticky public decode failure. */
     GifFrameControl pending_control;   /**< Control state for the next image. */
+    GifCanvasRectangle pending_background_rect; /**< Prior area to clear. */
     uint32_t frame_index;              /**< Next zero-based frame index. */
     uint8_t output_bound;              /**< Non-zero after output binding. */
     uint8_t stream_ended;              /**< Non-zero after the GIF trailer. */
+    uint8_t pending_background_disposal; /**< Non-zero for prior method 2. */
 };
 
 /**
@@ -52,6 +63,7 @@ struct GifDecoder {
 static void gif_decoder_reset_frame_control(GifFrameControl *control) {
     control->transparent_color = NO_TRANSPARENT_COLOR;
     control->delay_ms = 0;
+    control->disposal_mode = DISPOSAL_UNSPECIFIED;
 }
 
 /**
@@ -274,26 +286,29 @@ static void gif_decoder_background_color(const GifDecoder *decoder,
 }
 
 /**
- * @brief Fill the visible canvas with its initial background color.
+ * @brief Fill one visible canvas rectangle with the logical background color.
  *
  * Row padding is intentionally left untouched.
  *
  * @param[in,out] decoder Decoder with a validated bound output surface.
  */
-static void gif_decoder_initialize_output(GifDecoder *decoder) {
+static void gif_decoder_fill_background_rectangle(
+    GifDecoder *decoder, const GifCanvasRectangle *rectangle) {
     uint8_t *pixels = (uint8_t *)decoder->output.pixels;
     uint8_t red;
     uint8_t green;
     uint8_t blue;
-    int row;
-    int column;
+    uint32_t row;
+    uint32_t column;
 
     gif_decoder_background_color(decoder, &red, &green, &blue);
-    for (row = 0; row < decoder->gif->SHeight; row++) {
+    for (row = 0; row < rectangle->height; row++) {
         uint8_t *destination =
-            pixels + (size_t)row * decoder->output.stride_bytes;
+            pixels + (size_t)(rectangle->top + row) *
+                         decoder->output.stride_bytes +
+            (size_t)rectangle->left * 3;
 
-        for (column = 0; column < decoder->gif->SWidth; column++) {
+        for (column = 0; column < rectangle->width; column++) {
             if (decoder->output.pixel_format == GIF_PIXEL_RGB888) {
                 destination[0] = red;
                 destination[1] = green;
@@ -309,11 +324,99 @@ static void gif_decoder_initialize_output(GifDecoder *decoder) {
 }
 
 /**
+ * @brief Fill the visible canvas with its initial background color.
+ *
+ * Row padding is intentionally left untouched.
+ *
+ * @param[in,out] decoder Decoder with a validated bound output surface.
+ */
+static void gif_decoder_initialize_output(GifDecoder *decoder) {
+    GifCanvasRectangle canvas;
+
+    canvas.left = 0;
+    canvas.top = 0;
+    canvas.width = (uint32_t)decoder->gif->SWidth;
+    canvas.height = (uint32_t)decoder->gif->SHeight;
+    gif_decoder_fill_background_rectangle(decoder, &canvas);
+}
+
+/**
+ * @brief Apply the prior frame's restore-to-background instruction.
+ *
+ * GIF method 2 takes effect after the prior frame's display interval and
+ * immediately before the next image is composed. The decoder therefore keeps
+ * the completed prior canvas available to the caller, then clears only the
+ * prior image rectangle while preparing the following successful frame.
+ *
+ * @param[in,out] decoder Decoder holding the deferred disposal rectangle.
+ * @param[out] out_rect    Receives the cleared rectangle when one is applied.
+ * @return Non-zero when @p out_rect contains a restored area.
+ */
+static uint8_t gif_decoder_apply_pending_background_disposal(
+    GifDecoder *decoder, GifCanvasRectangle *out_rect) {
+    if (decoder->pending_background_disposal == 0) {
+        return 0;
+    }
+
+    gif_decoder_fill_background_rectangle(decoder,
+                                          &decoder->pending_background_rect);
+    *out_rect = decoder->pending_background_rect;
+    decoder->pending_background_disposal = 0;
+    return 1;
+}
+
+/**
+ * @brief Report the conservative canvas region changed for one frame result.
+ *
+ * A successful image always updates its own rectangle. If method 2 restored
+ * the preceding image immediately before composition, both rectangles are
+ * included in the reported bounding box even when a transparent pixel leaves
+ * part of that box visually unchanged.
+ *
+ * @param[in] image_rect       Current image rectangle.
+ * @param[in] restored_rect    Prior restored rectangle, if any.
+ * @param[in] has_restored_rect Non-zero when @p restored_rect is valid.
+ * @param[out] out_rect        Receives the conservative updated rectangle.
+ */
+static void gif_decoder_updated_rectangle(
+    const GifCanvasRectangle *image_rect,
+    const GifCanvasRectangle *restored_rect,
+    uint8_t has_restored_rect,
+    GifCanvasRectangle *out_rect) {
+    if (has_restored_rect == 0) {
+        *out_rect = *image_rect;
+        return;
+    }
+
+    {
+        uint32_t left = image_rect->left < restored_rect->left
+                            ? image_rect->left
+                            : restored_rect->left;
+        uint32_t top = image_rect->top < restored_rect->top
+                           ? image_rect->top
+                           : restored_rect->top;
+        uint32_t image_right = image_rect->left + image_rect->width;
+        uint32_t restored_right = restored_rect->left + restored_rect->width;
+        uint32_t image_bottom = image_rect->top + image_rect->height;
+        uint32_t restored_bottom = restored_rect->top + restored_rect->height;
+        uint32_t right = image_right > restored_right ? image_right
+                                                       : restored_right;
+        uint32_t bottom = image_bottom > restored_bottom ? image_bottom
+                                                          : restored_bottom;
+
+        out_rect->left = left;
+        out_rect->top = top;
+        out_rect->width = right - left;
+        out_rect->height = bottom - top;
+    }
+}
+
+/**
  * @brief Consume one extension and retain a GCE for the next image.
  *
  * Delay and transparency are copied into private streaming state rather than
- * accumulated in giflib SavedImages. Disposal 0/1 are valid at this stage;
- * user-input control and later disposal methods remain explicit unsupported
+ * accumulated in giflib SavedImages. Disposal 0/1/2 are valid at this stage;
+ * user-input control and restore-to-previous remain explicit unsupported
  * features.
  *
  * @param[in,out] decoder Decoder positioned after an extension introducer.
@@ -341,7 +444,8 @@ static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
                                &control) == GIF_ERROR) {
             return GIF_STATUS_INVALID_FORMAT;
         }
-        if (control.UserInputFlag || control.DisposalMode > DISPOSE_DO_NOT) {
+        if (control.UserInputFlag ||
+            control.DisposalMode > DISPOSE_BACKGROUND) {
             return GIF_STATUS_UNSUPPORTED_FEATURE;
         }
 
@@ -349,6 +453,8 @@ static GifStatus gif_decoder_process_extension(GifDecoder *decoder) {
             (uint32_t)control.DelayTime * 10U;
         decoder->pending_control.transparent_color =
             control.TransparentColor;
+        decoder->pending_control.disposal_mode =
+            (uint8_t)control.DisposalMode;
 
         if (DGifGetExtensionNext(decoder->gif, &extension) == GIF_ERROR) {
             return gif_decoder_map_error(decoder, decoder->gif->Error);
@@ -402,10 +508,14 @@ static int gif_decoder_image_rectangle_is_valid(const GifDecoder *decoder) {
  * @return Public decode, format, feature, source, or allocation status.
  */
 static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
-                                          GifFrameInfo *out_frame) {
+                                           GifFrameInfo *out_frame) {
     const ColorMapObject *color_map;
+    GifCanvasRectangle image_rect;
+    GifCanvasRectangle restored_rect;
+    GifCanvasRectangle updated_rect;
     GifPixelType *row_buffer;
     GifImageDesc *image = &decoder->gif->Image;
+    uint8_t restored_previous;
     int row;
 
     if (DGifGetImageHeader(decoder->gif) == GIF_ERROR) {
@@ -434,6 +544,9 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
     if (row_buffer == NULL) {
         return GIF_STATUS_OUT_OF_MEMORY;
     }
+
+    restored_previous = gif_decoder_apply_pending_background_disposal(
+        decoder, &restored_rect);
 
     for (row = 0; row < image->Height; row++) {
         uint8_t *destination;
@@ -480,16 +593,28 @@ static GifStatus gif_decoder_decode_image(GifDecoder *decoder,
 
     gif_mem_free(row_buffer);
 
+    image_rect.left = (uint32_t)image->Left;
+    image_rect.top = (uint32_t)image->Top;
+    image_rect.width = (uint32_t)image->Width;
+    image_rect.height = (uint32_t)image->Height;
+    gif_decoder_updated_rectangle(&image_rect, &restored_rect,
+                                  restored_previous, &updated_rect);
+
     out_frame->frame_index = decoder->frame_index;
     out_frame->delay_ms = decoder->pending_control.delay_ms;
-    out_frame->image_left = (uint32_t)image->Left;
-    out_frame->image_top = (uint32_t)image->Top;
-    out_frame->image_width = (uint32_t)image->Width;
-    out_frame->image_height = (uint32_t)image->Height;
-    out_frame->updated_left = out_frame->image_left;
-    out_frame->updated_top = out_frame->image_top;
-    out_frame->updated_width = out_frame->image_width;
-    out_frame->updated_height = out_frame->image_height;
+    out_frame->image_left = image_rect.left;
+    out_frame->image_top = image_rect.top;
+    out_frame->image_width = image_rect.width;
+    out_frame->image_height = image_rect.height;
+    out_frame->updated_left = updated_rect.left;
+    out_frame->updated_top = updated_rect.top;
+    out_frame->updated_width = updated_rect.width;
+    out_frame->updated_height = updated_rect.height;
+    decoder->pending_background_disposal =
+        decoder->pending_control.disposal_mode == DISPOSE_BACKGROUND;
+    if (decoder->pending_background_disposal != 0) {
+        decoder->pending_background_rect = image_rect;
+    }
     decoder->frame_index++;
     gif_decoder_reset_frame_control(&decoder->pending_control);
 
