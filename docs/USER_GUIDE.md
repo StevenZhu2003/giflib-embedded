@@ -41,7 +41,7 @@ The port must follow these non-negotiable rules:
 - EOF means no later byte is available, and may accompany final valid bytes; and
 - close is null-safe and releases every successfully opened source exactly once.
 
-The port does not need a pathname, filesystem, seek operation, file size, or a specific SDK. The teaching model in [PORTING_GUIDE.md](PORTING_GUIDE.md) uses the deliberately imaginary `storage_open()`, `storage_read()`, and `storage_close()` operations to show the abstraction; replace those names with the equivalent source operations available on the target. The same guide contains the complete contract, implementation rules, and a memory-source reference.
+The port does not need a pathname, filesystem, seek operation, file size, or a specific SDK. When a target requires dynamically allocated state for each open source, `gif_porting.c` alone may include the port-only `gif_porting_memory.h` bridge and use `gif_porting_mem_alloc()` / `gif_porting_mem_free()` for that handle. Application code never includes this header or calls these functions. A required handle allocation failure is reported by `gif_decoder_open()` as `GIF_STATUS_OUT_OF_MEMORY`; account for each live handle in the selected decoder-memory provider. The teaching model in [PORTING_GUIDE.md](PORTING_GUIDE.md) uses the deliberately imaginary `storage_open()`, `storage_read()`, and `storage_close()` operations to show the abstraction; replace those names with the equivalent source operations available on the target. The same guide contains the complete contract, implementation rules, and a memory-source reference.
 
 ### 1.3 Prepare application services
 
@@ -142,7 +142,7 @@ Every public operation returns a `GifStatus` unless otherwise specified.
 | `GIF_STATUS_OK` | The operation succeeded. Continue the documented lifecycle. |
 | `GIF_STATUS_END_OF_STREAM` | The GIF trailer was reached. This is normal completion; close the decoder. |
 | `GIF_STATUS_INVALID_ARGUMENT` | A required pointer, configuration value, or public argument was invalid. Correct application integration. |
-| `GIF_STATUS_OUT_OF_MEMORY` | The selected decoder backend could not allocate. Adjust the decoder allocation budget or application concurrency. |
+| `GIF_STATUS_OUT_OF_MEMORY` | The selected decoder backend could not allocate decoder state or a required port-owned dynamic handle. Adjust the allocation budget or application concurrency. |
 | `GIF_STATUS_IO_ERROR` | The port could not open or continue reading the source. Diagnose the target byte-source port. |
 | `GIF_STATUS_UNEXPECTED_EOF` | Input ended before a complete GIF structure. Treat the resource as truncated or diagnose read progress. |
 | `GIF_STATUS_INVALID_FORMAT` | The resource is not a valid supported GIF. Reject or replace it. |
@@ -372,7 +372,53 @@ After close, the source identifier and framebuffer may be released or reused by 
 
 ### 3.9 Complete lifecycle example
 
-The following concise example combines the preceding steps. `framebuffer_pixels` and its capacity are supplied by the application, and only presentation and delay are platform-specific placeholders.
+The complete integration has two separate parts. The port owns target-specific stream state; the application remains unaware of that state and uses only the public decoder API. The following optional port pattern supports multiple independent decoder lifecycles without a singleton `static` handle. `StorageHandle`, `storage_open()`, and `storage_close()` are teaching placeholders for the target's own byte-source API; the complete read contract remains in [PORTING_GUIDE.md](PORTING_GUIDE.md).
+
+```c
+/* port/gif_porting.c -- port-only code, never included by the application. */
+#include "gif_porting.h"
+#include "gif_porting_memory.h"
+
+typedef void *StorageHandle;
+
+typedef struct GifStorageHandle {
+    StorageHandle storage;
+} GifStorageHandle;
+
+GifPortingStatus gif_porting_open(const void *resource,
+                                  GifPortingHandle *out_handle) {
+    GifStorageHandle *handle;
+
+    if (resource == NULL || out_handle == NULL) {
+        return GIF_PORTING_IO_ERROR;
+    }
+    *out_handle = NULL;
+
+    handle = gif_porting_mem_alloc(sizeof(*handle));
+    if (handle == NULL) {
+        return GIF_PORTING_OUT_OF_MEMORY;
+    }
+    handle->storage = storage_open(resource);
+    if (handle->storage == NULL) {
+        gif_porting_mem_free(handle);
+        return GIF_PORTING_IO_ERROR;
+    }
+
+    *out_handle = handle;
+    return GIF_PORTING_OK;
+}
+
+void gif_porting_close(GifPortingHandle opaque_handle) {
+    GifStorageHandle *handle = (GifStorageHandle *)opaque_handle;
+
+    if (handle != NULL) {
+        storage_close(handle->storage);
+        gif_porting_mem_free(handle);
+    }
+}
+```
+
+The application neither sees `GifStorageHandle` nor calls porting functions. It simply supplies a resource identifier understood by the completed port. `framebuffer_pixels` and its capacity are application-owned, while presentation and delay remain platform-specific placeholders.
 
 ```c
 #include <gif_decoder.h>
@@ -382,9 +428,9 @@ extern void display_completed_gif_frame(const GifOutputSurface *surface,
                                         const GifFrameInfo *frame);
 extern void wait_for_gif_delay_ms(uint32_t delay_ms);
 
-GifStatus play_gif(const void *resource,
-                   void *framebuffer_pixels,
-                   size_t framebuffer_capacity_bytes) {
+GifStatus play_selected_gif(const void *resource,
+                            void *framebuffer_pixels,
+                            size_t framebuffer_capacity_bytes) {
     GifDecoderConfig config = { .source_identifier = resource };
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
