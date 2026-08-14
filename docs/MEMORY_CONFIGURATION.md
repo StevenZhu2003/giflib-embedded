@@ -38,13 +38,13 @@ payload = N × fixed_decoder_state
 
 `H_port(N)` is the total live payload of the port's independently allocated handles. It is product-specific: a simple memory cursor might be small, while a filesystem or driver wrapper can be much larger. Measure or bound it in the port; do not silently assume it is zero.
 
-The caller-owned framebuffer is always separate. RGB888/BGR888 framebuffer storage is at least:
+The caller-owned framebuffer is always separate. Let `pixel_bytes` be 3 for RGB888/BGR888 or 2 for RGB565. Its accessible storage is at least:
 
 ```text
-(canvas_height - 1) × stride_bytes + canvas_width × 3
+(canvas_height - 1) × stride_bytes + canvas_width × pixel_bytes
 ```
 
-For a tightly packed surface this is `canvas_width × canvas_height × 3`. A heuristic such as framebuffer size greater than or equal to the configured GIF pool can be useful for whole-system RAM planning, but it is not a decoder requirement.
+For a tightly packed surface this is `canvas_width × canvas_height × pixel_bytes`. A heuristic such as framebuffer size greater than or equal to the configured GIF pool can be useful for whole-system RAM planning, but it is not a decoder requirement.
 
 ## Choose a BUILTIN sizing profile
 

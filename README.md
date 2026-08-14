@@ -1,6 +1,6 @@
 # Portable GIF Decoder for Embedded Systems Based on giflib
 
-`giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded applications. It retains giflib's parser and LZW decoder, reads a forward-only byte source through one porting layer, and composes decoded frames into an application-owned RGB888 or BGR888 framebuffer.
+`giflib-embedded` is a decoder-only, platform-neutral GIF library for embedded applications. It retains giflib's parser and LZW decoder, reads a forward-only byte source through one porting layer, and composes decoded frames into an application-owned RGB888, BGR888, or RGB565 framebuffer.
 
 The library deliberately does not open files, own a display, schedule playback, or manage application buffers. The application supplies the storage port, framebuffer, display hand-off, and frame timing. A complete GIF resource therefore does not need to reside in RAM, while the complete logical-screen framebuffer is an intentional composition boundary: every successful frame is ready to present.
 
@@ -9,7 +9,7 @@ The library deliberately does not open files, own a display, schedule playback, 
 ## Suitable use
 
 - Decode GIF streams from any sequential platform byte source; no `stdio`, pathname, filesystem, RTOS, or vendor SDK is required in the decoder.
-- Present complete RGB888/BGR888 frames from a framebuffer that remains owned by the application.
+- Present complete RGB888, BGR888, or RGB565 frames from a framebuffer that remains owned by the application.
 - Use a bounded, library-owned pool by default, or select PRIVATE, LIBC, or LVGL allocation backends at build time.
 
 The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Disposal method 3, Plain Text extensions, and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`.

@@ -26,13 +26,13 @@ P_hardened_tested(N, W) = W + 128 KiB + 64 KiB × N
 
 The BUILTIN backend owns a single fixed TLSF pool. It includes every dynamic allocation made through `gif_mem_*`, including decoder state, giflib state, palette objects, the current image row buffer, and any dynamic port handle allocated with `gif_porting_mem_alloc()`.
 
-The output framebuffer is deliberately excluded. It is owned by the application and must be budgeted separately. For RGB888 or BGR888, the required accessible storage is:
+The output framebuffer is deliberately excluded. It is owned by the application and must be budgeted separately. Let `pixel_bytes` be 3 for RGB888/BGR888 or 2 for RGB565. The required accessible storage is:
 
 ```text
-(canvas_height - 1) × stride_bytes + canvas_width × 3
+(canvas_height - 1) × stride_bytes + canvas_width × pixel_bytes
 ```
 
-For a tightly packed surface, this simplifies to `canvas_width × canvas_height × 3` bytes.
+For a tightly packed surface, this simplifies to `canvas_width × canvas_height × pixel_bytes` bytes.
 
 The test harness serializes calls into the library, matching the BUILTIN backend's current thread-safety contract. It does not evaluate concurrent calls from multiple threads or interrupt contexts.
 

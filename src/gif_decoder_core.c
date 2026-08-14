@@ -170,13 +170,23 @@ static GifStatus gif_decoder_map_error(const GifDecoder *decoder,
 }
 
 /**
- * @brief Store one RGB triplet in the selected packed output byte order.
+ * @brief Return the number of bytes occupied by one validated output pixel.
+ *
+ * @param[in] pixel_format Validated destination layout.
+ * @return Number of bytes in one destination pixel.
+ */
+static inline size_t gif_decoder_pixel_bytes(GifPixelFormat pixel_format) {
+    return pixel_format == GIF_PIXEL_RGB565 ? 2U : 3U;
+}
+
+/**
+ * @brief Store one RGB color in the selected packed output layout.
  *
  * This is shared by background restoration and image composition. It is
  * deliberately inline because both callers execute it once per output pixel.
  *
- * @param[in] pixel_format Destination byte order.
- * @param[out] destination  Three writable destination bytes.
+ * @param[in] pixel_format Destination layout.
+ * @param[out] destination  Writable destination pixel bytes.
  * @param[in] red           Red component to store.
  * @param[in] green         Green component to store.
  * @param[in] blue          Blue component to store.
@@ -190,10 +200,17 @@ static inline void gif_decoder_store_pixel(GifPixelFormat pixel_format,
         destination[0] = red;
         destination[1] = green;
         destination[2] = blue;
-    } else {
+    } else if (pixel_format == GIF_PIXEL_BGR888) {
         destination[0] = blue;
         destination[1] = green;
         destination[2] = red;
+    } else {
+        uint16_t packed = (uint16_t)(((uint16_t)(red >> 3U) << 11U) |
+                                     ((uint16_t)(green >> 2U) << 5U) |
+                                     (uint16_t)(blue >> 3U));
+
+        /* memcpy preserves native word byte order without alignment demands. */
+        memcpy(destination, &packed, sizeof(packed));
     }
 }
 
@@ -212,6 +229,7 @@ static void gif_decoder_fill_background_rectangle(
     uint8_t red = 0;
     uint8_t green = 0;
     uint8_t blue = 0;
+    size_t pixel_bytes = gif_decoder_pixel_bytes(decoder->output.pixel_format);
     uint32_t row;
     uint32_t column;
 
@@ -225,12 +243,12 @@ static void gif_decoder_fill_background_rectangle(
         uint8_t *destination =
             pixels + (size_t)(rectangle->top + row) *
                          decoder->output.stride_bytes +
-            (size_t)rectangle->left * 3;
+            (size_t)rectangle->left * pixel_bytes;
 
         for (column = 0; column < rectangle->width; column++) {
             gif_decoder_store_pixel(decoder->output.pixel_format,
                                     destination, red, green, blue);
-            destination += 3;
+            destination += pixel_bytes;
         }
     }
 }
@@ -298,6 +316,7 @@ GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
     size_t row_bytes;
     size_t required_bytes;
     size_t rows_before_last;
+    size_t pixel_bytes;
 
     if (decoder == NULL) {
         return GIF_STATUS_INVALID_ARGUMENT;
@@ -308,7 +327,8 @@ GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
     }
     if (surface == NULL || surface->pixels == NULL ||
         (surface->pixel_format != GIF_PIXEL_RGB888 &&
-         surface->pixel_format != GIF_PIXEL_BGR888)) {
+         surface->pixel_format != GIF_PIXEL_BGR888 &&
+         surface->pixel_format != GIF_PIXEL_RGB565)) {
         return GIF_STATUS_INVALID_ARGUMENT;
     }
     if (decoder->gif->SWidth <= 0 || decoder->gif->SHeight <= 0) {
@@ -322,11 +342,12 @@ GifStatus gif_decoder_core_bind_output(GifDecoder *decoder,
              decoder->gif->SColorMap->ColorCount)) {
         return GIF_STATUS_INVALID_FORMAT;
     }
-    if ((size_t)decoder->gif->SWidth > SIZE_MAX / 3U) {
+    pixel_bytes = gif_decoder_pixel_bytes(surface->pixel_format);
+    if ((size_t)decoder->gif->SWidth > SIZE_MAX / pixel_bytes) {
         return GIF_STATUS_BUFFER_TOO_SMALL;
     }
 
-    row_bytes = (size_t)decoder->gif->SWidth * 3U;
+    row_bytes = (size_t)decoder->gif->SWidth * pixel_bytes;
     if (surface->stride_bytes < row_bytes) {
         return GIF_STATUS_BUFFER_TOO_SMALL;
     }
@@ -389,6 +410,8 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
             int interlace_pass = 0;
             int interlace_row = 0;
             int row;
+            size_t pixel_bytes =
+                gif_decoder_pixel_bytes(decoder->output.pixel_format);
 
             if (DGifGetImageHeader(decoder->gif) == GIF_ERROR) {
                 status = gif_decoder_map_error(decoder, decoder->gif->Error);
@@ -449,7 +472,7 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                 destination = (uint8_t *)decoder->output.pixels +
                               (size_t)(image->Top + destination_row) *
                                   decoder->output.stride_bytes +
-                              (size_t)image->Left * 3U;
+                               (size_t)image->Left * pixel_bytes;
                 for (column = 0; column < image->Width; column++) {
                     int palette_index = row_buffer[column];
                     const GifColorType *color;
@@ -460,14 +483,14 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                     }
                     if (palette_index ==
                         decoder->pending_control.transparent_color) {
-                        destination += 3;
+                        destination += pixel_bytes;
                         continue;
                     }
                     color = &color_map->Colors[palette_index];
                     gif_decoder_store_pixel(decoder->output.pixel_format,
                                             destination, color->Red,
                                             color->Green, color->Blue);
-                    destination += 3;
+                    destination += pixel_bytes;
                 }
 
                 if (image->Interlace) {

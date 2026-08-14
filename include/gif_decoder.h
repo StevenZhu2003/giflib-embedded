@@ -54,10 +54,18 @@ typedef struct GifStreamInfo {
     uint8_t has_global_color_table; /**< Non-zero when a global table exists. */
 } GifStreamInfo;
 
-/** @brief Packed 24-bit pixel layouts supported by the compositor. */
+/** @brief Packed pixel layouts supported by the compositor. */
 typedef enum GifPixelFormat {
     GIF_PIXEL_RGB888 = 0, /**< Byte order: red, green, blue. */
-    GIF_PIXEL_BGR888 = 1  /**< Byte order: blue, green, red. */
+    GIF_PIXEL_BGR888 = 1, /**< Byte order: blue, green, red. */
+    /**
+     * @brief Native-endian 16-bit word: R[15:11], G[10:5], B[4:0].
+     *
+     * The compositor truncates 8-bit components to their most significant
+     * 5/6/5 bits. The application owns any byte swap required by a display
+     * transfer interface.
+     */
+    GIF_PIXEL_RGB565 = 2
 } GifPixelFormat;
 
 /** @brief Caller-owned destination for fully composited canvas pixels. */
