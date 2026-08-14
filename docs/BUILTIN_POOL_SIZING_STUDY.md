@@ -24,7 +24,7 @@ P_hardened_tested(N, W) = W + 128 KiB + 64 KiB × N
 
 ### Disposal method 3 scope
 
-The completed workload matrix exercised disposal methods 0, 1, and 2. Restore to Previous (disposal method 3) is now an optional compile-time feature, but its retained pre-composition rectangle was not part of the measurements recorded here. A product that enables it must add a declared aggregate snapshot bound `H_previous(N)` to the selected profile and validate its accepted corpus. For a conservative bound, use `N × R`, where `R` is the largest accepted image-rectangle area times the output pixel size; no output-surface stride padding is retained. The calculator exposes this as `--disposal3-snapshot-bytes-per-decoder` and adds it to every profile. This is a modelled extension to the study, not an experimental claim that method 3 received the same endurance coverage.
+The completed workload matrix exercised disposal methods 0, 1, and 2. Restore to Previous (disposal method 3) is now an optional compile-time feature, but its packed pre-composition rectangle is application-owned `GifOutputSurface` storage and is not part of any measured or calculated BUILTIN pool profile. A product that enables it must separately reserve `S_previous(N) = N × R`, where `R` is the largest accepted image-rectangle area times the output pixel size; no output-surface stride padding is retained. The calculator intentionally excludes this application storage. This remains a modelled product bound rather than an experimental claim that method 3 received the same endurance coverage.
 
 ## Scope and memory boundary
 

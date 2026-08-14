@@ -11,9 +11,9 @@ The library deliberately does not open files, own a display, schedule playback, 
 - Decode GIF streams from any sequential platform byte source; no `stdio`, pathname, filesystem, RTOS, or vendor SDK is required in the decoder.
 - Present complete RGB888, BGR888, or RGB565 frames from a framebuffer that remains owned by the application.
 - Use a bounded, library-owned pool by default, or select PRIVATE, LIBC, or LVGL allocation backends at build time.
-- Use optional, compile-time-trimmable Restore-to-Previous (disposal method 3) support only for products that accept method-3 GIFs and budget its rectangle snapshot; the default binary omits it.
+- Use optional, compile-time-trimmable Restore-to-Previous (disposal method 3) support only for products that accept method-3 GIFs and provide its application-owned snapshot storage; the default binary omits it.
 
-The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Restore-to-previous (disposal method 3) is an optional build feature: it is disabled by default and enabled with `GIF_ENABLE_DISPOSAL_METHOD_3=1` (or CMake `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`). Plain Text extensions and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`; method 3 does so when its optional feature is disabled.
+The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Restore-to-previous (disposal method 3) is an optional build feature: it is disabled by default and enabled with `GIF_ENABLE_DISPOSAL_METHOD_3=1` (or CMake `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`). An enabled method-3 frame needs a distinct caller-owned snapshot in `GifOutputSurface`; if it is absent or too small, decoding returns `GIF_STATUS_BUFFER_TOO_SMALL`. Plain Text extensions and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`; method 3 does so when its optional feature is disabled.
 
 ## Quick start
 

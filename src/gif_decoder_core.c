@@ -54,7 +54,7 @@ struct GifDecoder {
     GifFrameControl pending_control;   /**< Control state for the next image. */
     GifCanvasRectangle pending_disposal_rect; /**< Prior area to restore. */
 #if GIF_ENABLE_DISPOSAL_METHOD_3
-    uint8_t *pending_previous_pixels; /**< Packed snapshot for prior method 3. */
+    uint8_t *pending_previous_pixels; /**< Caller snapshot for prior method 3. */
 #endif
     uint32_t frame_index;              /**< Next zero-based frame index. */
     GifPendingDisposal pending_disposal; /**< Deferred action from prior frame. */
@@ -274,10 +274,9 @@ static void gif_decoder_fill_background_rectangle(
     }
 }
 
-/** @brief Discard any decoder-owned state retained for a deferred disposal. */
+/** @brief Clear bookkeeping retained for a deferred disposal. */
 static void gif_decoder_clear_pending_disposal(GifDecoder *decoder) {
 #if GIF_ENABLE_DISPOSAL_METHOD_3
-    gif_mem_free(decoder->pending_previous_pixels);
     decoder->pending_previous_pixels = NULL;
 #endif
     decoder->pending_disposal = GIF_PENDING_DISPOSAL_NONE;
@@ -533,12 +532,14 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                     goto fail;
                 }
                 saved_total_bytes = saved_row_bytes * (size_t)image_rect.height;
-                saved_previous_pixels =
-                    (uint8_t *)gif_mem_malloc(saved_total_bytes);
-                if (saved_previous_pixels == NULL) {
-                    status = GIF_STATUS_OUT_OF_MEMORY;
+                if (decoder->output.disposal3_snapshot == NULL ||
+                    decoder->output.disposal3_snapshot_capacity_bytes <
+                        saved_total_bytes) {
+                    status = GIF_STATUS_BUFFER_TOO_SMALL;
                     goto fail;
                 }
+                saved_previous_pixels =
+                    (uint8_t *)decoder->output.disposal3_snapshot;
                 for (saved_row = 0; saved_row < image_rect.height;
                      saved_row++) {
                     memcpy(saved_previous_pixels +
@@ -731,9 +732,6 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
 
 fail:
     gif_mem_free(row_buffer);
-#if GIF_ENABLE_DISPOSAL_METHOD_3
-    gif_mem_free(saved_previous_pixels);
-#endif
     gif_decoder_clear_pending_disposal(decoder);
     decoder->terminal_status = status;
     return status;

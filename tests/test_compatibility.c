@@ -264,20 +264,26 @@ static uint8_t *allocate_surface(const GifStreamInfo *stream,
         }
         return pixels;
     }
-    if ((size_t)stream->canvas_width > SIZE_MAX / 3U) {
+    row_bytes = (size_t)stream->canvas_width;
+    if (row_bytes > SIZE_MAX / 3U) {
         return NULL;
     }
-    row_bytes = (size_t)stream->canvas_width * 3U;
+    row_bytes *= 3U;
     if ((size_t)stream->canvas_height > SIZE_MAX / row_bytes) {
         return NULL;
     }
     capacity = row_bytes * (size_t)stream->canvas_height;
-    pixels = (uint8_t *)malloc(capacity);
+    if (capacity > SIZE_MAX / 2U) {
+        return NULL;
+    }
+    pixels = (uint8_t *)malloc(capacity * 2U);
     if (pixels != NULL) {
         memset(pixels, 0xa5, capacity);
         surface->pixels = pixels;
         surface->capacity_bytes = capacity;
         surface->stride_bytes = row_bytes;
+        surface->disposal3_snapshot = pixels + capacity;
+        surface->disposal3_snapshot_capacity_bytes = capacity;
     }
     return pixels;
 }

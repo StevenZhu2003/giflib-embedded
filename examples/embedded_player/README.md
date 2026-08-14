@@ -14,7 +14,7 @@ assets/device_boot.gif
 
 The animation and its C byte representation were created for this project and are not copied from external media. No platform SDK, filesystem, display library, or other third-party component is bundled or required.
 
-The example does not impose a disposal-method configuration. It links the selected library build: the default remains method-3-trimmed, while a build configured with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` can also play a resource that uses Restore to Previous. The example framebuffer remains application-owned in either configuration.
+The example does not impose a disposal-method configuration. It links the selected library build: the default remains method-3-trimmed, while a build configured with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` can also play a resource that uses Restore to Previous. `main.c` reserves a separate application-owned static snapshot sized for its maximum canvas, so the enabled build can accept a full-canvas method-3 rectangle without consuming the decoder allocator pool. The framebuffer remains application-owned in either configuration.
 
 ## Animation asset origin and license
 

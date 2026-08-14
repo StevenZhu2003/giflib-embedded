@@ -27,6 +27,10 @@
 static uint8_t example_framebuffer[EXAMPLE_MAX_CANVAS_HEIGHT *
                                    EXAMPLE_FRAMEBUFFER_STRIDE];
 
+/** @brief Caller-owned snapshot supporting one full-canvas disposal-3 image. */
+static uint8_t example_disposal3_snapshot[EXAMPLE_MAX_CANVAS_HEIGHT *
+                                           EXAMPLE_FRAMEBUFFER_STRIDE];
+
 /**
  * @brief Play one complete GIF resource through the public decoder API.
  *
@@ -37,7 +41,7 @@ static int application_play_gif(const GifMemorySource *source) {
     const GifDecoderConfig config = {source};
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
-    GifOutputSurface surface;
+    GifOutputSurface surface = {0};
     GifFrameInfo frame;
     GifStatus status;
     int display_open = 0;
@@ -68,6 +72,9 @@ static int application_play_gif(const GifMemorySource *source) {
     surface.capacity_bytes = sizeof(example_framebuffer);
     surface.stride_bytes = EXAMPLE_FRAMEBUFFER_STRIDE;
     surface.pixel_format = GIF_PIXEL_RGB888;
+    surface.disposal3_snapshot = example_disposal3_snapshot;
+    surface.disposal3_snapshot_capacity_bytes =
+        sizeof(example_disposal3_snapshot);
 
     status = gif_decoder_bind_output(decoder, &surface);
     if (status != GIF_STATUS_OK) {

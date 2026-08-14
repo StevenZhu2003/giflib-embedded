@@ -94,6 +94,7 @@ static void gif_fuzz_decode_variant(const uint8_t *data,
     GifStreamInfo stream;
     MemorySource source;
     uint8_t *framebuffer = NULL;
+    uint8_t *disposal3_snapshot = NULL;
     size_t framebuffer_size;
     size_t stride;
     unsigned int frame_steps;
@@ -128,10 +129,14 @@ static void gif_fuzz_decode_variant(const uint8_t *data,
                                           &framebuffer_size)) {
         framebuffer = (uint8_t *)malloc(framebuffer_size);
         if (framebuffer != NULL) {
+            disposal3_snapshot = (uint8_t *)malloc(framebuffer_size);
             surface.pixels = framebuffer;
             surface.capacity_bytes = framebuffer_size;
             surface.stride_bytes = stride;
             surface.pixel_format = GIF_PIXEL_RGB888;
+            surface.disposal3_snapshot = disposal3_snapshot;
+            surface.disposal3_snapshot_capacity_bytes =
+                disposal3_snapshot != NULL ? framebuffer_size : 0U;
             status = gif_decoder_bind_output(decoder, &surface);
             if (status == GIF_STATUS_OK) {
                 for (frame_steps = 0U;
@@ -147,6 +152,7 @@ static void gif_fuzz_decode_variant(const uint8_t *data,
     }
 
     gif_decoder_close(decoder);
+    free(disposal3_snapshot);
     free(framebuffer);
     if (source.close_calls != 1U) {
         abort();

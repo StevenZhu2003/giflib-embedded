@@ -10,7 +10,7 @@ The ordinary repository regression remains independent of this guide's local GIF
 | --- | --- | --- |
 | Curated corpus | Ensure public behavior is tested against independently generated GIFs rather than only small project fixtures. | All 39 pinned files have provenance, a digest, a classification, and a frozen structural outcome. |
 | Public lifecycle | Check the same open, bind, decode, and close calls an application uses. | The opt-in harness uses only the public decoder API and a forward-only test port. |
-| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite checks optional disposal method 3 in RGB888 and RGB565, including initial, consecutive, 2-to-3, and 3-to-2 composition transitions. |
+| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite checks optional disposal method 3 in RGB888 and RGB565, including initial, consecutive, 2-to-3, and 3-to-2 composition transitions with caller-owned snapshots. |
 | Read and cleanup | Confirm short reads, final-byte EOF, source failures, and repeated lifecycles do not violate the port contract. | The selected sparse matrix passes without an unnecessary Cartesian-product expansion. |
 | Allocator scope | Confirm decoder behavior is not coupled to one host allocator implementation. | The full corpus uses PRIVATE accounting; selected cases also pass through BUILTIN, LIBC, and the LVGL public-API mock. |
 | Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The completed configured host matrices passed under both supported host configurations. |
@@ -95,7 +95,7 @@ The harness verifies public statuses, frame count, canvas dimensions, relevant G
 | Palettes | global_ct_only.gif, local_ct.gif, mixed_ct.gif | Global/local palette selection and colour output. |
 | Interlace and geometry | static_interlaced.gif, small_frame_big_canvas.gif, overlapping_frames.gif | Pass order, background, offsets, updated rectangle, composited output. |
 | Transparency and disposal 0/1/2 | transparent_bg.gif, transparent_frame.gif, dispose_background.gif | GCE state, transparent pixels, restore-to-background, continuous composition. |
-| Optional disposal 3 | dispose_previous.gif plus ordinary hand-authored fixtures | Structural lifecycle result in the enabled corpus configuration; RGB888/RGB565 restore-to-previous composition, consecutive frames, and cleanup in ordinary regression. |
+| Optional disposal 3 | dispose_previous.gif plus ordinary hand-authored fixtures | Structural lifecycle result in the enabled corpus configuration; RGB888/RGB565 restore-to-previous composition, consecutive frames, caller-owned snapshot capacity, and cleanup in ordinary regression. |
 | Animation/timing | anim_*.gif, delay_*.gif, variable_delay.gif, loop_*.gif | Frame count, delay_ms, no decoder-owned waiting or looping. |
 | Version/extensions | gif87a.gif, bad_magic.gif, comment_ext.gif | Version policy and non-rendering extension handling. |
 

@@ -324,7 +324,7 @@ static GifStatus bind_output(GifDecoder *decoder,
                              size_t capacity_bytes,
                              size_t stride_bytes,
                              GifPixelFormat pixel_format) {
-    GifOutputSurface surface;
+    GifOutputSurface surface = {0};
 
     surface.pixels = pixels;
     surface.capacity_bytes = capacity_bytes;
@@ -332,6 +332,28 @@ static GifStatus bind_output(GifDecoder *decoder,
     surface.pixel_format = pixel_format;
     return gif_decoder_bind_output(decoder, &surface);
 }
+
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+/** @brief Bind output with one caller-owned Restore-to-Previous snapshot. */
+static GifStatus bind_output_with_disposal3_snapshot(
+    GifDecoder *decoder,
+    void *pixels,
+    size_t capacity_bytes,
+    size_t stride_bytes,
+    GifPixelFormat pixel_format,
+    void *snapshot,
+    size_t snapshot_capacity_bytes) {
+    GifOutputSurface surface = {0};
+
+    surface.pixels = pixels;
+    surface.capacity_bytes = capacity_bytes;
+    surface.stride_bytes = stride_bytes;
+    surface.pixel_format = pixel_format;
+    surface.disposal3_snapshot = snapshot;
+    surface.disposal3_snapshot_capacity_bytes = snapshot_capacity_bytes;
+    return gif_decoder_bind_output(decoder, &surface);
+}
+#endif
 
 /** @brief Compare one RGB565 output pixel without assuming host byte order. */
 static void check_rgb565_pixel(const uint8_t *pixels,
@@ -629,7 +651,8 @@ static void test_rgb888_and_stride(void) {
     CHECK(pixels[3] == 0x11 && pixels[4] == 0x22 && pixels[5] == 0x33);
     CHECK(pixels[6] == 0xee && pixels[7] == 0xee);
     CHECK(gif_decoder_bind_output(decoder, &(GifOutputSurface){
-              pixels, sizeof(pixels), sizeof(pixels), GIF_PIXEL_RGB888}) ==
+              pixels, sizeof(pixels), sizeof(pixels), GIF_PIXEL_RGB888,
+              NULL, 0U}) ==
           GIF_STATUS_INVALID_STATE);
     CHECK(gif_decoder_next_frame(decoder, &frame) ==
           GIF_STATUS_END_OF_STREAM);
@@ -1031,6 +1054,7 @@ static void test_rgb565_disposal_composition(void) {
  */
 static void test_disposal_previous_composition(void) {
     uint8_t previous[sizeof(gif_disposal_composition)];
+    uint8_t snapshot[9];
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
@@ -1046,8 +1070,9 @@ static void test_disposal_previous_composition(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
@@ -1076,8 +1101,9 @@ static void test_disposal_previous_composition(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
@@ -1097,8 +1123,9 @@ static void test_disposal_previous_composition(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
@@ -1115,6 +1142,7 @@ static void test_disposal_previous_composition(void) {
 /** @brief Restore saved rectangles directly into native-word RGB565 output. */
 static void test_rgb565_disposal_previous_composition(void) {
     uint8_t previous[sizeof(gif_disposal_composition)];
+    uint8_t snapshot[6];
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
@@ -1131,8 +1159,9 @@ static void test_rgb565_disposal_previous_composition(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB565) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB565, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
@@ -1157,6 +1186,7 @@ static void test_rgb565_disposal_previous_composition(void) {
 static void test_disposal_previous_failure_cleanup(void) {
     uint8_t truncated[sizeof(gif_disposal_two_truncated_next_image)];
     uint8_t interrupted[sizeof(gif_disposal_composition)];
+    uint8_t snapshot[9];
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
@@ -1172,8 +1202,9 @@ static void test_disposal_previous_failure_cleanup(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) ==
           GIF_STATUS_UNEXPECTED_EOF);
@@ -1195,8 +1226,9 @@ static void test_disposal_previous_failure_cleanup(void) {
         return;
     }
 
-    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
@@ -1218,6 +1250,7 @@ static void test_disposal_previous_lifecycle_cleanup(void) {
         GifFrameInfo frame;
         GifStatus status;
         uint8_t pixels[9];
+        uint8_t snapshot[9];
 
         memcpy(previous, gif_disposal_composition, sizeof(previous));
         CHECK(set_gce_disposal(previous, sizeof(previous), 2U, 0x0cU));
@@ -1227,8 +1260,10 @@ static void test_disposal_previous_lifecycle_cleanup(void) {
             return;
         }
 
-        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
-                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(bind_output_with_disposal3_snapshot(
+                  decoder, pixels, sizeof(pixels), sizeof(pixels),
+                  GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) ==
+              GIF_STATUS_OK);
         do {
             status = gif_decoder_next_frame(decoder, &frame);
         } while (status == GIF_STATUS_OK);
@@ -1239,9 +1274,11 @@ static void test_disposal_previous_lifecycle_cleanup(void) {
     }
 }
 
-/** @brief Report and clean up a failed capture before a mode-3 image. */
-static void test_disposal_previous_snapshot_oom(void) {
+/** @brief Reject missing or too-small caller snapshot storage for method 3. */
+static void test_disposal_previous_snapshot_capacity(void) {
     uint8_t previous[sizeof(gif_disposal_composition)];
+    uint8_t too_small_snapshot[2];
+    uint8_t snapshot[9];
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
@@ -1260,10 +1297,45 @@ static void test_disposal_previous_snapshot_oom(void) {
     CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
                       GIF_PIXEL_RGB888) == GIF_STATUS_OK);
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_BUFFER_TOO_SMALL);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_BUFFER_TOO_SMALL);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+
+    decoder = NULL;
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, too_small_snapshot,
+              sizeof(too_small_snapshot)) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_BUFFER_TOO_SMALL);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+
+    decoder = NULL;
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+    CHECK(bind_output_with_disposal3_snapshot(
+              decoder, pixels, sizeof(pixels), sizeof(pixels),
+              GIF_PIXEL_RGB888, snapshot, sizeof(snapshot)) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    /* Allow the row allocation only; method-3 capture must not allocate. */
     giflib_test_fail_allocation_after(1U);
-    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OUT_OF_MEMORY);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     giflib_test_disable_allocation_failure();
-    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OUT_OF_MEMORY);
     gif_decoder_close(decoder);
     CHECK(source.close_calls == 1U);
     CHECK(giflib_test_outstanding_allocations() == allocations_before);
@@ -1637,7 +1709,7 @@ int main(void) {
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
     test_disposal_previous_failure_cleanup();
     test_disposal_previous_lifecycle_cleanup();
-    test_disposal_previous_snapshot_oom();
+    test_disposal_previous_snapshot_capacity();
 #endif
 #endif
     test_disposal_two_failure_cleanup();
