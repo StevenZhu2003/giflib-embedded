@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation:
+    name: Documentation checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Check Markdown links and tables
+        run: python3 tools/check_docs.py
+      - name: Check whitespace errors in the latest change
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          else
+            git diff --check
+          fi
+      - name: Keep local corpus and fuzz material out of Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '^(testdata/(compatibility_corpus|fuzz)/|_TEMP/)'; then
+            echo 'Local validation material must remain untracked.' >&2
+            exit 1
+          fi
+
+  linux-gcc:
+    name: Linux GCC release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-linux-gcc -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DGIFLIB_BUILD_TESTS=ON
+          -DGIFLIB_BUILD_EXAMPLES=ON
+      - name: Build
+        run: cmake --build build/ci-linux-gcc --parallel
+      - name: Run tests
+        run: ctest --test-dir build/ci-linux-gcc --output-on-failure --no-tests=error
+      - name: Check installation layout
+        run: cmake --install build/ci-linux-gcc --prefix "$GITHUB_WORKSPACE/build/ci-install"
+
+  linux-clang-sanitized:
+    name: Linux Clang ASan UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-linux-clang-sanitized -G Ninja
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_BUILD_TYPE=Debug
+          -DGIFLIB_ENABLE_HOST_SANITIZERS=ON
+          -DGIFLIB_BUILD_TESTS=ON
+          -DGIFLIB_BUILD_EXAMPLES=ON
+      - name: Build
+        run: cmake --build build/ci-linux-clang-sanitized --parallel
+      - name: Run tests
+        run: ctest --test-dir build/ci-linux-clang-sanitized --output-on-failure --no-tests=error
+
+  windows-msvc:
+    name: Windows MSVC release
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build/ci-windows-msvc
+          -G "Visual Studio 17 2022" -A x64
+          -DGIFLIB_BUILD_TESTS=ON
+          -DGIFLIB_BUILD_EXAMPLES=ON
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/ci-windows-msvc --config Release --parallel
+      - name: Run tests
+        shell: pwsh
+        run: ctest --test-dir build/ci-windows-msvc -C Release --output-on-failure --no-tests=error
+      - name: Check installation layout
+        shell: pwsh
+        run: cmake --install build/ci-windows-msvc --config Release --prefix "$env:GITHUB_WORKSPACE/build/ci-install"
+
+  arm-static:
+    name: ARM static-library audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Arm GNU toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils-arm-none-eabi gcc-arm-none-eabi
+      - name: Build BUILTIN and PRIVATE static libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          configure_and_build() {
+            local backend="$1"
+            local build_dir="build/ci-arm-${backend,,}"
+            cmake -S . -B "$build_dir" -G Ninja \
+              -DCMAKE_SYSTEM_NAME=Generic \
+              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+              -DCMAKE_C_COMPILER=arm-none-eabi-gcc \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DGIFLIB_BUILD_TESTS=OFF \
+              -DGIFLIB_BUILD_EXAMPLES=OFF \
+              -DGIF_MEM_BACKEND="$backend"
+            cmake --build "$build_dir" --parallel
+          }
+
+          configure_and_build BUILTIN
+          configure_and_build PRIVATE
+      - name: Audit allocator references
+        shell: bash
+        run: |
+          set -euo pipefail
+          builtin_symbols=build/ci-arm-builtin/undefined-symbols.txt
+          private_symbols=build/ci-arm-private/undefined-symbols.txt
+          arm-none-eabi-nm -u build/ci-arm-builtin/libgiflib_embedded.a | tee "$builtin_symbols"
+          arm-none-eabi-nm -u build/ci-arm-private/libgiflib_embedded.a | tee "$private_symbols"
+
+          if grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free)$' "$builtin_symbols" "$private_symbols"; then
+            echo 'A no-libc-heap backend references a C library heap symbol.' >&2
+            exit 1
+          fi
+
+          for symbol in gif_mem_private_malloc gif_mem_private_realloc gif_mem_private_free; do
+            if ! grep -Eq "[[:space:]]U[[:space:]]${symbol}$" "$private_symbols"; then
+              echo "PRIVATE build is missing expected provider symbol: ${symbol}" >&2
+              exit 1
+            fi
+          done
