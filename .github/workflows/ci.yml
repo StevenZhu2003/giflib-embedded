@@ -101,7 +101,7 @@ jobs:
         run: cmake --install build/ci-windows-msvc --config Release --prefix "$env:GITHUB_WORKSPACE/build/ci-install"
 
   arm-static:
-    name: ARM static-library audit
+    name: ARM C-library profiles and heap audit
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -111,38 +111,92 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            binutils-arm-none-eabi gcc-arm-none-eabi libnewlib-arm-none-eabi
-      - name: Build BUILTIN and PRIVATE static libraries
+            binutils-arm-none-eabi gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            picolibc-arm-none-eabi
+      - name: Build C-library profiles and PRIVATE static library
         shell: bash
         run: |
           set -euo pipefail
 
           configure_and_build() {
-            local backend="$1"
-            local build_dir="build/ci-arm-${backend,,}"
-            cmake -S . -B "$build_dir" -G Ninja \
-              -DCMAKE_SYSTEM_NAME=Generic \
-              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-              -DCMAKE_C_COMPILER=arm-none-eabi-gcc \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DGIFLIB_BUILD_TESTS=OFF \
-              -DGIFLIB_BUILD_EXAMPLES=OFF \
-              -DGIF_MEM_BACKEND="$backend"
+            local profile="$1"
+            local backend="$2"
+            local specs_option="$3"
+            local build_dir="build/ci-arm-${profile}"
+            local cmake_args=(
+              -S . -B "$build_dir" -G Ninja
+              -DCMAKE_SYSTEM_NAME=Generic
+              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
+              -DCMAKE_C_COMPILER=arm-none-eabi-gcc
+              -DCMAKE_BUILD_TYPE=Release
+              -DGIFLIB_BUILD_TESTS=OFF
+              -DGIFLIB_BUILD_EXAMPLES=OFF
+              "-DGIF_MEM_BACKEND=$backend"
+            )
+            if [[ -n "$specs_option" ]]; then
+              cmake_args+=("-DCMAKE_C_FLAGS:STRING=$specs_option")
+            fi
+
+            cmake "${cmake_args[@]}"
             cmake --build "$build_dir" --parallel
           }
 
-          configure_and_build BUILTIN
-          configure_and_build PRIVATE
+          configure_and_build newlib BUILTIN ''
+          configure_and_build newlib-nano BUILTIN '--specs=nano.specs'
+          configure_and_build picolibc BUILTIN '--specs=picolibc.specs'
+          configure_and_build private-newlib PRIVATE ''
+      - name: Confirm selected C library archives
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          link_profile() {
+            local profile="$1"
+            local specs_option="$2"
+            local expected_archive_pattern="$3"
+            local build_dir="build/ci-arm-${profile}"
+            local trace_file="$build_dir/libc-link-trace.txt"
+            local compiler_options=()
+            if [[ -n "$specs_option" ]]; then
+              compiler_options+=("$specs_option")
+            fi
+
+            arm-none-eabi-gcc "${compiler_options[@]}" -r -Wl,-t \
+              -Wl,--whole-archive "$build_dir/libgiflib_embedded.a" \
+              -Wl,--no-whole-archive -Wl,--undefined=memset -lc \
+              -o "$build_dir/libc-link-check.o" >"$trace_file" 2>&1
+
+            if ! grep -Eq 'libc(_nano)?\.a' "$trace_file"; then
+              echo "${profile}: the relocatable link did not select a C library archive." >&2
+              cat "$trace_file" >&2
+              exit 1
+            fi
+            if [[ -n "$expected_archive_pattern" ]] && \
+               ! grep -Eq "$expected_archive_pattern" "$trace_file"; then
+              echo "${profile}: expected C library archive was not selected." >&2
+              cat "$trace_file" >&2
+              exit 1
+            fi
+          }
+
+          link_profile newlib '' ''
+          link_profile newlib-nano '--specs=nano.specs' 'libc_nano\.a'
+          link_profile picolibc '--specs=picolibc.specs' 'picolibc.*libc\.a'
       - name: Audit allocator references
         shell: bash
         run: |
           set -euo pipefail
-          builtin_symbols=build/ci-arm-builtin/undefined-symbols.txt
-          private_symbols=build/ci-arm-private/undefined-symbols.txt
-          arm-none-eabi-nm -u build/ci-arm-builtin/libgiflib_embedded.a | tee "$builtin_symbols"
-          arm-none-eabi-nm -u build/ci-arm-private/libgiflib_embedded.a | tee "$private_symbols"
+          newlib_symbols=build/ci-arm-newlib/undefined-symbols.txt
+          nano_symbols=build/ci-arm-newlib-nano/undefined-symbols.txt
+          picolibc_symbols=build/ci-arm-picolibc/undefined-symbols.txt
+          private_symbols=build/ci-arm-private-newlib/undefined-symbols.txt
+          arm-none-eabi-nm -u build/ci-arm-newlib/libgiflib_embedded.a | tee "$newlib_symbols"
+          arm-none-eabi-nm -u build/ci-arm-newlib-nano/libgiflib_embedded.a | tee "$nano_symbols"
+          arm-none-eabi-nm -u build/ci-arm-picolibc/libgiflib_embedded.a | tee "$picolibc_symbols"
+          arm-none-eabi-nm -u build/ci-arm-private-newlib/libgiflib_embedded.a | tee "$private_symbols"
 
-          if grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free)$' "$builtin_symbols" "$private_symbols"; then
+          if grep -Eq '(^|[[:space:]])(malloc|calloc|realloc|free)$' \
+            "$newlib_symbols" "$nano_symbols" "$picolibc_symbols" "$private_symbols"; then
             echo 'A no-libc-heap backend references a C library heap symbol.' >&2
             exit 1
           fi
