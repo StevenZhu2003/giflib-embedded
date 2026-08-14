@@ -31,7 +31,7 @@ For fixed-pool sizing and static-RAM planning, see [MEMORY_CONFIGURATION.md](MEM
 
 ### 1.2 Select optional Restore-to-Previous support
 
-Disposal methods 0, 1, and 2 are always available. A GIF that requests disposal method 3 (Restore to Previous) is accepted only when `GIF_ENABLE_DISPOSAL_METHOD_3` is `1`; it remains deliberately unsupported by the default `0` build. CMake users can select it with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`.
+Disposal methods 0, 1, and 2 are always available. A GIF that requests disposal method 3 (Restore to Previous) is accepted only when `GIF_ENABLE_DISPOSAL_METHOD_3` is `1`; it remains deliberately unsupported by the default `0` build. CMake users can select it with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`; direct builds define the same public configuration macro. The disabled build carries no method-3 snapshot state or copy path.
 
 Method 3 preserves the caller-owned framebuffer model, but the decoder retains one tightly packed pre-composition image rectangle while that frame remains pending. For a fixed-pool product, include the declared maximum snapshot cost in the pool plan. [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md) defines that calculation and the calculator input. The framebuffer itself remains outside the decoder pool.
 

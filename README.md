@@ -11,12 +11,13 @@ The library deliberately does not open files, own a display, schedule playback, 
 - Decode GIF streams from any sequential platform byte source; no `stdio`, pathname, filesystem, RTOS, or vendor SDK is required in the decoder.
 - Present complete RGB888, BGR888, or RGB565 frames from a framebuffer that remains owned by the application.
 - Use a bounded, library-owned pool by default, or select PRIVATE, LIBC, or LVGL allocation backends at build time.
+- Use optional, compile-time-trimmable Restore-to-Previous (disposal method 3) support only for products that accept method-3 GIFs and budget its rectangle snapshot; the default binary omits it.
 
 The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Restore-to-previous (disposal method 3) is an optional build feature: it is disabled by default and enabled with `GIF_ENABLE_DISPOSAL_METHOD_3=1` (or CMake `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`). Plain Text extensions and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`; method 3 does so when its optional feature is disabled.
 
 ## Quick start
 
-1. Choose one allocator backend. The supplied CMake build selects `BUILTIN` by default; use `-DGIF_MEM_BACKEND=PRIVATE`, `LIBC`, or `LVGL` when appropriate.
+1. Choose one allocator backend. The supplied CMake build selects `BUILTIN` by default; use `-DGIF_MEM_BACKEND=PRIVATE`, `LIBC`, or `LVGL` when appropriate. Add `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` only when Restore-to-Previous support is required.
 2. Implement the three `gif_porting_open/read/close` functions for the product's byte source. The standard port allocates one independent handle for every open decoder stream.
 3. Include only `gif_decoder.h` and `gif_config.h` in application code, then follow the decode lifecycle in the User Guide.
 

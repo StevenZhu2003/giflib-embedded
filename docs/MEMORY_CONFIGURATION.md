@@ -19,9 +19,15 @@ All backends share the same decoder allocation semantics. The library adds no al
 
 For PRIVATE, implement only `gif_mem_private_malloc()`, `gif_mem_private_realloc()`, and `gif_mem_private_free()` in `port/gif_mem_private.c`; the common facade supplies zero-size and overflow behavior. LIBC needs no allocator port. LVGL support covers 8.4 and 9.x through public allocation APIs only; the application calls `lv_init()` before opening an LVGL-backed decoder and keeps LVGL initialized until every such decoder closes. The library never initializes, deinitializes, resets, or locks LVGL.
 
+## Optional Restore-to-Previous feature
+
+`GIF_ENABLE_DISPOSAL_METHOD_3` in `gif_config.h` selects Restore-to-Previous support. It defaults to `0`; that build has no method-3 snapshot state or copy path and returns `GIF_STATUS_UNSUPPORTED_FEATURE` for a method-3 Graphic Control Extension. Set it to `1` only when the accepted GIF set requires it. CMake maps `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` to the same public macro.
+
+An enabled build preserves the caller-owned framebuffer model. The additional decoder-owned payload is explained below and must be included in a BUILTIN product budget; the framebuffer itself remains separate.
+
 ## What the BUILTIN pool covers
 
-The streaming decoder does not retain decoded frames or `SavedImages`. Its pool contains decoder and giflib state, retained palettes, one transient palette-index row buffer, TLSF metadata, and—when the standard dynamic port pattern is used—the per-stream port handle allocated with `gif_porting_mem_alloc()`. When the optional `GIF_ENABLE_DISPOSAL_METHOD_3=1` feature is selected, it also contains one pending packed pre-composition image rectangle for each live decoder whose most recently completed frame requests Restore to Previous.
+The streaming decoder does not retain decoded frames or `SavedImages`. Its pool contains decoder and giflib state, retained palettes, one transient palette-index row buffer, TLSF metadata, and—when the standard dynamic port pattern is used—the per-stream port handle allocated with `gif_porting_mem_alloc()`. An enabled method-3 build also retains one pending packed pre-composition image rectangle for each live decoder whose most recently completed frame requests Restore to Previous.
 
 For a declared product envelope, the source-level payload model is:
 

@@ -1086,6 +1086,30 @@ static void test_disposal_previous_composition(void) {
     CHECK(pixels[3] == 0x44 && pixels[4] == 0x55 && pixels[5] == 0x66);
     CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
     gif_decoder_close(decoder);
+
+    /* Method 2 applies before the method-3 image captures its snapshot. */
+    memcpy(previous, gif_disposal_composition, sizeof(previous));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 2U, 0x0cU));
+    decoder = NULL;
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 2);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x77 && pixels[7] == 0x88 && pixels[8] == 0x99);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 3);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+    gif_decoder_close(decoder);
 }
 
 /** @brief Restore saved rectangles directly into native-word RGB565 output. */
@@ -1132,11 +1156,12 @@ static void test_rgb565_disposal_previous_composition(void) {
 /** @brief Release a pending mode-3 snapshot when the following image fails. */
 static void test_disposal_previous_failure_cleanup(void) {
     uint8_t truncated[sizeof(gif_disposal_two_truncated_next_image)];
+    uint8_t interrupted[sizeof(gif_disposal_composition)];
     MemorySource source;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
     GifFrameInfo frame;
-    uint8_t pixels[6];
+    uint8_t pixels[9];
     size_t allocations_before = giflib_test_outstanding_allocations();
 
     memcpy(truncated, gif_disposal_two_truncated_next_image, sizeof(truncated));
@@ -1157,6 +1182,61 @@ static void test_disposal_previous_failure_cleanup(void) {
     gif_decoder_close(decoder);
     CHECK(source.close_calls == 1U);
     CHECK(giflib_test_outstanding_allocations() == allocations_before);
+
+    memcpy(interrupted, gif_disposal_composition, sizeof(interrupted));
+    CHECK(set_gce_disposal(interrupted, sizeof(interrupted), 0U, 0x0cU));
+    decoder = NULL;
+    memory_source_init(&source, interrupted, sizeof(interrupted));
+    source.max_chunk = 1U;
+    source.inject_error = true;
+    source.error_offset = 48U;
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+}
+
+/** @brief Repeat end-of-stream cleanup while a method-3 snapshot is pending. */
+static void test_disposal_previous_lifecycle_cleanup(void) {
+    uint8_t previous[sizeof(gif_disposal_composition)];
+    size_t allocations_before = giflib_test_outstanding_allocations();
+    unsigned int iteration;
+
+    for (iteration = 0U; iteration < 4U; iteration++) {
+        MemorySource source;
+        GifDecoder *decoder = NULL;
+        GifStreamInfo stream;
+        GifFrameInfo frame;
+        GifStatus status;
+        uint8_t pixels[9];
+
+        memcpy(previous, gif_disposal_composition, sizeof(previous));
+        CHECK(set_gce_disposal(previous, sizeof(previous), 2U, 0x0cU));
+        memory_source_init(&source, previous, sizeof(previous));
+        CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+        if (decoder == NULL) {
+            return;
+        }
+
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        do {
+            status = gif_decoder_next_frame(decoder, &frame);
+        } while (status == GIF_STATUS_OK);
+        CHECK(status == GIF_STATUS_END_OF_STREAM);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1U);
+        CHECK(giflib_test_outstanding_allocations() == allocations_before);
+    }
 }
 
 /** @brief Report and clean up a failed capture before a mode-3 image. */
@@ -1556,6 +1636,7 @@ int main(void) {
     test_rgb565_disposal_previous_composition();
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
     test_disposal_previous_failure_cleanup();
+    test_disposal_previous_lifecycle_cleanup();
     test_disposal_previous_snapshot_oom();
 #endif
 #endif

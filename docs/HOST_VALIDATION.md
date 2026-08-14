@@ -10,10 +10,10 @@ The ordinary repository regression remains independent of this guide's local GIF
 | --- | --- | --- |
 | Curated corpus | Ensure public behavior is tested against independently generated GIFs rather than only small project fixtures. | All 39 pinned files have provenance, a digest, a classification, and a frozen structural outcome. |
 | Public lifecycle | Check the same open, bind, decode, and close calls an application uses. | The opt-in harness uses only the public decoder API and a forward-only test port. |
-| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite also checks optional disposal method 3 in RGB888 and RGB565. |
+| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite checks optional disposal method 3 in RGB888 and RGB565, including initial, consecutive, 2-to-3, and 3-to-2 composition transitions. |
 | Read and cleanup | Confirm short reads, final-byte EOF, source failures, and repeated lifecycles do not violate the port contract. | The selected sparse matrix passes without an unnecessary Cartesian-product expansion. |
 | Allocator scope | Confirm decoder behavior is not coupled to one host allocator implementation. | The full corpus uses PRIVATE accounting; selected cases also pass through BUILTIN, LIBC, and the LVGL public-API mock. |
-| Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The complete 16-test matrix passed under both supported host configurations. |
+| Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The completed configured host matrices passed under both supported host configurations. |
 | Fuzzing | Explore variations around the curated corpus and measure whether the current input model reaches new code paths. | Two four-worker campaigns ran for about 4 hours 56 minutes and at least 3,877,840 executions; code coverage reached a stable plateau. |
 
 The results are evidence for the stated host configuration, corpus, and source revision. They are not a proof about every GIF, platform port, allocator configuration, or future revision.
@@ -122,7 +122,7 @@ GIFLIB_ENABLE_HOST_SANITIZERS=ON creates a separate host-only instrumented confi
 | MSVC or clang-cl | AddressSanitizer |
 | GCC or native Clang | AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The completed validation matrix passed under MSVC 19.51 ASan and GCC 13.3 ASan+UBSan in WSL Ubuntu 24.04. These runs cover the normal host regression, embedded-player example, and opt-in compatibility harness. They do not replace target validation.
+The completed configured validation matrices passed under MSVC 19.51 ASan and GCC 13.3 ASan+UBSan in WSL Ubuntu 24.04. These runs cover the normal host regression, embedded-player example, and opt-in compatibility harness. They do not replace target validation.
 
 ## 5. Host fuzzer
 
