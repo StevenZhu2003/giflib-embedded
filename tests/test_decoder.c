@@ -7,6 +7,7 @@
  */
 
 #include "gif_decoder.h"
+#include "gif_config.h"
 
 #include "test_porting.h"
 
@@ -239,6 +240,7 @@ static const uint8_t gif_disposal_composition[] = {
     0x3b,
 };
 
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
 /** @brief Disposal-2 stream that ends during the following image payload. */
 static const uint8_t gif_disposal_two_truncated_next_image[] = {
     'G', 'I', 'F', '8', '9', 'a',
@@ -252,6 +254,27 @@ static const uint8_t gif_disposal_two_truncated_next_image[] = {
     0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
     0x02,
 };
+#endif
+
+/** @brief Change one fixture GCE's packed field without duplicating its bytes. */
+static int set_gce_disposal(uint8_t *data,
+                            size_t size,
+                            size_t gce_index,
+                            uint8_t packed_field) {
+    size_t index;
+
+    for (index = 0U; index + 3U < size; index++) {
+        if (data[index] == 0x21U && data[index + 1U] == 0xf9U &&
+            data[index + 2U] == 0x04U) {
+            if (gce_index == 0U) {
+                data[index + 3U] = packed_field;
+                return 1;
+            }
+            gce_index--;
+        }
+    }
+    return 0;
+}
 
 /**
  * @brief Initialize an in-memory input source with default read behavior.
@@ -1010,6 +1033,172 @@ static void test_rgb565_disposal_composition(void) {
     gif_decoder_close(decoder);
 }
 
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+/**
+ * @brief Restore saved RGB888 rectangles across initial and consecutive mode-3 frames.
+ */
+static void test_disposal_previous_composition(void) {
+    uint8_t previous[sizeof(gif_disposal_composition)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[9];
+
+    memcpy(previous, gif_disposal_composition, sizeof(previous));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 1U, 0x0cU));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 2U, 0x0cU));
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 1);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x44 && pixels[4] == 0x55 && pixels[5] == 0x66);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 2);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x77 && pixels[7] == 0x88 && pixels[8] == 0x99);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 3);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+    gif_decoder_close(decoder);
+
+    memcpy(previous, gif_disposal_composition, sizeof(previous));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 0U, 0x0cU));
+    decoder = NULL;
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 2);
+    CHECK(pixels[0] == 0x10 && pixels[1] == 0x20 && pixels[2] == 0x30);
+    CHECK(pixels[3] == 0x44 && pixels[4] == 0x55 && pixels[5] == 0x66);
+    CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+    gif_decoder_close(decoder);
+}
+
+/** @brief Restore saved rectangles directly into native-word RGB565 output. */
+static void test_rgb565_disposal_previous_composition(void) {
+    uint8_t previous[sizeof(gif_disposal_composition)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[8];
+
+    memset(pixels, 0xee, sizeof(pixels));
+    memcpy(previous, gif_disposal_composition, sizeof(previous));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 1U, 0x0cU));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 2U, 0x0cU));
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB565) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x44, 0x55, 0x66);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 2);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x77, 0x88, 0x99);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 3);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+    CHECK(pixels[6] == 0xee && pixels[7] == 0xee);
+    gif_decoder_close(decoder);
+}
+
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
+/** @brief Release a pending mode-3 snapshot when the following image fails. */
+static void test_disposal_previous_failure_cleanup(void) {
+    uint8_t truncated[sizeof(gif_disposal_two_truncated_next_image)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+    size_t allocations_before = giflib_test_outstanding_allocations();
+
+    memcpy(truncated, gif_disposal_two_truncated_next_image, sizeof(truncated));
+    CHECK(set_gce_disposal(truncated, sizeof(truncated), 0U, 0x0cU));
+    memory_source_init(&source, truncated, sizeof(truncated));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_UNEXPECTED_EOF);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_UNEXPECTED_EOF);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+}
+
+/** @brief Report and clean up a failed capture before a mode-3 image. */
+static void test_disposal_previous_snapshot_oom(void) {
+    uint8_t previous[sizeof(gif_disposal_composition)];
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[9];
+    size_t allocations_before = giflib_test_outstanding_allocations();
+
+    memcpy(previous, gif_disposal_composition, sizeof(previous));
+    CHECK(set_gce_disposal(previous, sizeof(previous), 1U, 0x0cU));
+    memory_source_init(&source, previous, sizeof(previous));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    giflib_test_fail_allocation_after(1U);
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OUT_OF_MEMORY);
+    giflib_test_disable_allocation_failure();
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OUT_OF_MEMORY);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+    CHECK(giflib_test_outstanding_allocations() == allocations_before);
+}
+#endif
+#endif
+
 /** @brief Release all allocations after disposal-2 decode failure paths. */
 static void test_disposal_two_failure_cleanup(void) {
 #ifdef GIFLIB_TEST_ALLOC_TRACKING
@@ -1162,18 +1351,19 @@ static void check_unsupported_gif(const uint8_t *data, size_t size) {
     gif_decoder_close(decoder);
 }
 
-/** @brief Reject user input and restore-to-previous disposal requests. */
+/** @brief Reject user input and disabled optional disposal requests. */
 static void test_unsupported_features(void) {
     check_unsupported_gif(gif_with_user_input,
                           sizeof(gif_with_user_input));
-    /* Disposal method 3 requires a future saved-canvas design. */
+#if !GIF_ENABLE_DISPOSAL_METHOD_3
     {
         uint8_t unsupported[sizeof(gif_disposal_composition)];
 
         memcpy(unsupported, gif_disposal_composition, sizeof(unsupported));
-        unsupported[28] = 0x0c; /* Change first GCE disposal to method 3. */
+        CHECK(set_gce_disposal(unsupported, sizeof(unsupported), 0U, 0x0cU));
         check_unsupported_gif(unsupported, sizeof(unsupported));
     }
+#endif
 }
 
 /** @brief Distinguish port read I/O failure from EOF during frame decoding. */
@@ -1369,6 +1559,14 @@ int main(void) {
     test_two_streaming_frames();
     test_disposal_composition();
     test_rgb565_disposal_composition();
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    test_disposal_previous_composition();
+    test_rgb565_disposal_previous_composition();
+#ifdef GIFLIB_TEST_ALLOC_TRACKING
+    test_disposal_previous_failure_cleanup();
+    test_disposal_previous_snapshot_oom();
+#endif
+#endif
     test_disposal_two_failure_cleanup();
     test_graphics_control_scope();
     test_graphics_control_before_comment();

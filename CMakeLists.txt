@@ -191,6 +191,14 @@ if(NOT GIF_MEM_BACKEND_NORMALIZED STREQUAL "BUILTIN" AND
     message(FATAL_ERROR "GIF_MEM_BACKEND must be BUILTIN, PRIVATE, LIBC, or LVGL")
 endif()
 
+option(GIFLIB_ENABLE_DISPOSAL_METHOD_3
+       "Enable GIF disposal method 3 (Restore to Previous) support" OFF)
+if(GIFLIB_ENABLE_DISPOSAL_METHOD_3)
+    set(GIFLIB_DISPOSAL_METHOD_3_VALUE 1)
+else()
+    set(GIFLIB_DISPOSAL_METHOD_3_VALUE 0)
+endif()
+
 set(GIFLIB_LVGL_INCLUDE_DIR "" CACHE PATH
     "Directory containing the public LVGL lvgl.h header (LVGL backend only)")
 set(GIFLIB_LVGL_LIBRARY "" CACHE STRING
@@ -313,6 +321,9 @@ add_library(giflib_embedded STATIC
 )
 add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
 giflib_add_memory_backend(giflib_embedded ${GIF_MEM_BACKEND_NORMALIZED})
+target_compile_definitions(giflib_embedded PUBLIC
+    GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
+)
 
 # Publish only the facade include directory; internal boundaries remain private.
 target_include_directories(giflib_embedded
@@ -387,6 +398,7 @@ if(GIFLIB_BUILD_TESTS)
     giflib_add_memory_backend(gif_decoder_facade_tests PRIVATE)
     target_compile_definitions(gif_decoder_facade_tests PRIVATE
         GIFLIB_TEST_ALLOC_TRACKING=1
+        GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
     )
     target_include_directories(gif_decoder_facade_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -398,6 +410,31 @@ if(GIFLIB_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
     )
     giflib_apply_common_options(gif_decoder_facade_tests)
+
+    # Exercise the optional restore-to-previous path independently of the
+    # default deliberately-trimmed decoder configuration.
+    add_executable(gif_decoder_disposal3_tests
+        tests/test_decoder.c
+        tests/test_porting.c
+        tests/test_allocator.c
+        src/gif_decoder.c
+        ${GIFLIB_DECODER_CORE_SOURCES}
+    )
+    giflib_add_memory_backend(gif_decoder_disposal3_tests PRIVATE)
+    target_compile_definitions(gif_decoder_disposal3_tests PRIVATE
+        GIFLIB_TEST_ALLOC_TRACKING=1
+        GIF_ENABLE_DISPOSAL_METHOD_3=1
+    )
+    target_include_directories(gif_decoder_disposal3_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
+    )
+    giflib_apply_common_options(gif_decoder_disposal3_tests)
 
     # Verify the backend-independent facade semantics and overflow handling.
     add_executable(gif_memory_semantics_tests
@@ -498,6 +535,9 @@ if(GIFLIB_BUILD_TESTS)
         ${GIFLIB_DECODER_CORE_SOURCES}
     )
     giflib_add_memory_backend(gif_decoder_facade_libc_tests LIBC)
+    target_compile_definitions(gif_decoder_facade_libc_tests PRIVATE
+        GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
+    )
     target_include_directories(gif_decoder_facade_libc_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -519,6 +559,7 @@ if(GIFLIB_BUILD_TESTS)
     giflib_add_memory_backend(gif_decoder_facade_lvgl_tests LVGL)
     target_compile_definitions(gif_decoder_facade_lvgl_tests PRIVATE
         GIFLIB_TEST_ALLOC_TRACKING=1
+        GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
         LVGL_VERSION_MAJOR=9
         LVGL_VERSION_MINOR=0
     )
@@ -591,6 +632,7 @@ if(GIFLIB_BUILD_TESTS)
 
     add_test(NAME giflib_regression COMMAND giflib_regression_tests)
     add_test(NAME gif_decoder_facade COMMAND gif_decoder_facade_tests)
+    add_test(NAME gif_decoder_disposal3 COMMAND gif_decoder_disposal3_tests)
     add_test(NAME gif_memory_semantics COMMAND gif_memory_semantics_tests)
     add_test(NAME gif_memory_libc COMMAND gif_memory_libc_tests)
     add_test(NAME gif_memory_builtin_semantics
@@ -653,6 +695,9 @@ if(GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS)
 
         add_executable(${target} ${compatibility_sources})
         giflib_add_memory_backend(${target} ${backend})
+        target_compile_definitions(${target} PRIVATE
+            GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
+        )
         target_include_directories(${target} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/include"
             "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -728,6 +773,9 @@ if(GIFLIB_BUILD_FUZZER)
         ${GIFLIB_DECODER_CORE_SOURCES}
     )
     giflib_add_memory_backend(gif_decoder_fuzzer LIBC)
+    target_compile_definitions(gif_decoder_fuzzer PRIVATE
+        GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
+    )
     target_include_directories(gif_decoder_fuzzer PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

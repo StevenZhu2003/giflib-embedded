@@ -29,6 +29,7 @@ class Estimate:
     local_palette_bytes: int
     row_buffer_bytes: int
     port_handle_bytes: int
+    disposal3_snapshot_bytes: int
     tlsf_control_bytes: int
     payload_model_bytes: int
     payload_estimate_bytes: int
@@ -68,9 +69,13 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
     local_palette_bytes = arguments.local_palettes * palette_bytes
     row_buffer_bytes = round_up(arguments.max_row_width, arguments.alignment)
     port_handle_bytes = arguments.live_decoders * arguments.port_handle_bytes
+    disposal3_snapshot_bytes = (
+        arguments.live_decoders * arguments.disposal3_snapshot_bytes_per_decoder
+    )
     payload_model_bytes = (
         fixed_decoder_bytes + global_palette_bytes + local_palette_bytes +
-        row_buffer_bytes + port_handle_bytes + arguments.tlsf_control_bytes
+        row_buffer_bytes + port_handle_bytes + disposal3_snapshot_bytes +
+        arguments.tlsf_control_bytes
     )
     payload_estimate_bytes = payload_model_bytes + arguments.model_margin_bytes
 
@@ -102,6 +107,7 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
         local_palette_bytes=local_palette_bytes,
         row_buffer_bytes=row_buffer_bytes,
         port_handle_bytes=port_handle_bytes,
+        disposal3_snapshot_bytes=disposal3_snapshot_bytes,
         tlsf_control_bytes=arguments.tlsf_control_bytes,
         payload_model_bytes=payload_model_bytes,
         payload_estimate_bytes=payload_estimate_bytes,
@@ -130,6 +136,10 @@ def main() -> None:
                         help="maximum entries in each retained palette (default: 256)")
     parser.add_argument("--port-handle-bytes", type=non_negative, default=0,
                         help="payload bytes in one gif_porting.c handle (default: 0)")
+    parser.add_argument("--disposal3-snapshot-bytes-per-decoder",
+                        type=non_negative, default=0,
+                        help=("largest packed Restore-to-Previous rectangle per live "
+                              "decoder; use zero when method 3 is disabled (default: 0)"))
     parser.add_argument("--decoder-fixed-bytes", type=positive, default=25024,
                         help="per-decoder fixed payload, excluding palettes and row; verified ARM32 default")
     parser.add_argument("--colour-map-object-bytes", type=positive, default=12,
@@ -173,6 +183,7 @@ def main() -> None:
     print(f"  retained local maps : {format_bytes(result.local_palette_bytes)}")
     print(f"  one active row      : {format_bytes(result.row_buffer_bytes)}")
     print(f"  port handles        : {format_bytes(result.port_handle_bytes)}")
+    print(f"  method-3 snapshots  : {format_bytes(result.disposal3_snapshot_bytes)}")
     print(f"  TLSF control        : {format_bytes(result.tlsf_control_bytes)}")
     print()
     print(f"Payload-derived estimate : {format_bytes(result.payload_estimate_bytes)}")

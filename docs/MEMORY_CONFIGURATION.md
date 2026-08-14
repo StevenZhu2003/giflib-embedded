@@ -21,7 +21,7 @@ For PRIVATE, implement only `gif_mem_private_malloc()`, `gif_mem_private_realloc
 
 ## What the BUILTIN pool covers
 
-The streaming decoder does not retain decoded frames or `SavedImages`. Its pool contains decoder and giflib state, retained palettes, one transient palette-index row buffer, TLSF metadata, and—when the standard dynamic port pattern is used—the per-stream port handle allocated with `gif_porting_mem_alloc()`.
+The streaming decoder does not retain decoded frames or `SavedImages`. Its pool contains decoder and giflib state, retained palettes, one transient palette-index row buffer, TLSF metadata, and—when the standard dynamic port pattern is used—the per-stream port handle allocated with `gif_porting_mem_alloc()`. When the optional `GIF_ENABLE_DISPOSAL_METHOD_3=1` feature is selected, it also contains one pending packed pre-composition image rectangle for each live decoder whose most recently completed frame requests Restore to Previous.
 
 For a declared product envelope, the source-level payload model is:
 
@@ -31,12 +31,15 @@ payload = N × fixed_decoder_state
         + local_palette_count × palette_size
         + W
         + H_port(N)
+        + H_previous(N)
         + TLSF control and allocation metadata
 ```
 
 `N` is the maximum simultaneously live `GifDecoder` count, and `W` is the greatest accepted image-descriptor width in pixels. One row consumes one byte per pixel. The public decoder-call contract is serialized, so the maximum transient row term is `W`, not `W × N`.
 
 `H_port(N)` is the total live payload of the port's independently allocated handles. It is product-specific: a simple memory cursor might be small, while a filesystem or driver wrapper can be much larger. Measure or bound it in the port; do not silently assume it is zero.
+
+`H_previous(N)` is zero when disposal method 3 is disabled. When it is enabled, it is the aggregate of all simultaneously pending Restore-to-Previous snapshots. A conservative product bound is `N × R`, where `R` is the largest accepted image-rectangle area multiplied by the selected output pixel size (3 for RGB888/BGR888 or 2 for RGB565). The snapshot is tightly packed and does not include output-surface stride padding. The existing profile study predates method 3; the calculator therefore adds this declared cost explicitly rather than presenting it as evidence already covered by the study.
 
 The caller-owned framebuffer is always separate. Let `pixel_bytes` be 3 for RGB888/BGR888 or 2 for RGB565. Its accessible storage is at least:
 
@@ -52,9 +55,9 @@ Use [`tools/estimate_builtin_pool.py`](../tools/estimate_builtin_pool.py) with d
 
 | Profile | Meaning | When to choose it |
 | --- | --- | --- |
-| Payload-derived | Arithmetic model of the declared state, palettes, one row, port handles, ABI values, TLSF control, and an adjustable reserve. | A resource-controlled product that has measured its own corpus and validates its chosen capacity. |
-| Balanced | `max(payload-derived + 16 KiB, W + 32 KiB + 40 KiB × N + H_port(N))`. | The normal starting point for a general serialized product. Its floor encloses the completed random mixed-lifecycle boundary matrix. |
-| Hardened | `max(payload-derived + 128 KiB, W + 128 KiB + 64 KiB × N + H_port(N))`. | A product willing to trade more RAM for stronger evidence against varied lifetimes, source errors, holes, and wide transient rows. It passed the declared adverse-lifecycle study; it is not every product's minimum requirement. |
+| Payload-derived | Arithmetic model of the declared state, palettes, one row, port handles, optional method-3 snapshots, ABI values, TLSF control, and an adjustable reserve. | A resource-controlled product that has measured its own corpus and validates its chosen capacity. |
+| Balanced | `max(payload-derived + 16 KiB, W + 32 KiB + 40 KiB × N + H_port(N))`. The payload-derived term includes `H_previous(N)`. | The normal starting point for a general serialized product. Its floor encloses the completed random mixed-lifecycle boundary matrix for methods 0/1/2; enabled method 3 adds the declared snapshot payload. |
+| Hardened | `max(payload-derived + 128 KiB, W + 128 KiB + 64 KiB × N + H_port(N))`. The payload-derived term includes `H_previous(N)`. | A product willing to trade more RAM for stronger evidence against varied lifetimes, source errors, holes, and wide transient rows. It passed the declared adverse-lifecycle study for methods 0/1/2; enabled method 3 adds the declared snapshot payload and still needs product validation. |
 
 The calculator defaults describe the verified ARM32 ABI. Override its structure-size inputs for another ABI, and round the selected result upward to the target's linker/allocation granularity.
 
@@ -76,7 +79,8 @@ Example:
 python tools/estimate_builtin_pool.py `
     --live-decoders 2 `
     --max-row-width 800 `
-    --port-handle-bytes 64
+    --port-handle-bytes 64 `
+    --disposal3-snapshot-bytes-per-decoder 0
 ```
 
 The calculator offers `--json` for planning scripts. Its inputs are assertions supplied by the user, not measurements or guarantees.
@@ -85,7 +89,7 @@ The calculator offers `--json` for planning scripts. Its inputs are assertions s
 
 [BUILTIN_POOL_SIZING_STUDY.md](BUILTIN_POOL_SIZING_STUDY.md) is the canonical evidence record: corpus shape, workload classes, OOM classification, boundary results, long-duration endurance, and acceptance criteria. It establishes the meaning of the Balanced and Hardened profiles; it does not replace product validation.
 
-The profiles do not budget an application framebuffer, unrelated application allocations, unbounded driver caches, calls from multiple threads or interrupt contexts, a port handle larger than `H_port(N)`, or GIFs beyond the declared width and palette limits.
+The profiles do not budget an application framebuffer, unrelated application allocations, unbounded driver caches, calls from multiple threads or interrupt contexts, a port handle larger than `H_port(N)`, or GIFs beyond the declared width and palette limits. They also do not replace product validation of enabled disposal method 3; declare the snapshot input and validate the accepted corpus.
 
 ## Port allocation boundary
 

@@ -1,10 +1,10 @@
 # Disposal Method 3 Implementation Plan
 
-This document records the reviewed implementation plan for GIF disposal method 3, “Restore to Previous”. It is a design and acceptance record; the feature is not supported until the implementation, regression coverage, and public documentation changes are complete.
+This document records the reviewed design and acceptance plan for GIF disposal method 3, “Restore to Previous”. The implementation is compile-time optional: the default build keeps it disabled, while an enabled build includes the feature and its dedicated regression coverage.
 
 ## 1. Scope and preserved contracts
 
-Disposal method 3 is an optional compile-time feature. The feature will preserve the existing public decoder lifecycle:
+Disposal method 3 is an optional compile-time feature. The implemented feature preserves the existing public decoder lifecycle:
 
 ```text
 gif_decoder_open()
@@ -19,9 +19,9 @@ Plain Text extensions and Graphic Control Extension user-input requests remain u
 
 ### 1.1 Compile-time feature boundary
 
-`gif_config.h` will define `GIF_ENABLE_DISPOSAL_METHOD_3` as the centralized selector. Its default will be `0`, which preserves today’s parser policy: disposal method 3 returns `GIF_STATUS_UNSUPPORTED_FEATURE`. A value of `1` enables restore-to-previous support. Any other value will produce a compile-time configuration error.
+`gif_config.h` defines `GIF_ENABLE_DISPOSAL_METHOD_3` as the centralized selector. Its default is `0`, which preserves the parser policy: disposal method 3 returns `GIF_STATUS_UNSUPPORTED_FEATURE`. A value of `1` enables restore-to-previous support. Any other value produces a compile-time configuration error.
 
-The enabled implementation will be conditionally compiled in the hidden decoder core. When the selector is `0`, the decoder object will carry no method-3 snapshot pointer, the rectangle-copy helpers and snapshot allocation path will not be emitted, and the BUILTIN pool has no method-3 storage requirement. This is a real code and RAM reduction boundary, not merely a runtime switch. The public API is unchanged in either configuration.
+The enabled implementation is conditionally compiled in the hidden decoder core. When the selector is `0`, the decoder object carries no method-3 snapshot pointer, the rectangle-copy helpers and snapshot allocation path are not emitted, and the BUILTIN pool has no method-3 storage requirement. This is a real code and RAM reduction boundary, not merely a runtime switch. The public API is unchanged in either configuration.
 
 Every enabled and disabled test configuration must verify its intended policy. Enabled builds must compose method-3 streams; disabled builds must retain the single `GIF_STATUS_UNSUPPORTED_FEATURE` result before the target image. Documentation will state that availability depends on `GIF_ENABLE_DISPOSAL_METHOD_3`.
 
@@ -29,7 +29,7 @@ Every enabled and disabled test configuration must verify its intended policy. E
 
 The hidden core currently remembers one deferred method-2 operation: after a frame requesting restore-to-background is displayed, the next image call clears that image rectangle immediately before it composes the following image. The returned `GifFrameInfo` reports the conservative bounding rectangle of that restoration and the new image rectangle.
 
-Graphic Control Extensions are parsed before their target image. The current implementation rejects a disposal value greater than `DISPOSE_BACKGROUND`, so an otherwise valid method-3 stream returns `GIF_STATUS_UNSUPPORTED_FEATURE` before its target image is decoded. The local compatibility corpus therefore classifies `dispose_previous.gif` as deliberately unsupported. This remains the required behavior of builds where `GIF_ENABLE_DISPOSAL_METHOD_3` is `0`.
+Graphic Control Extensions are parsed before their target image. Disabled builds reject a disposal value greater than `DISPOSE_BACKGROUND`, so an otherwise valid method-3 stream returns `GIF_STATUS_UNSUPPORTED_FEATURE` before its target image is decoded. Enabled builds accept `DISPOSE_PREVIOUS` while retaining rejection of higher disposal values. The local compatibility corpus therefore classifies `dispose_previous.gif` according to the selected configuration.
 
 All decoder-owned allocations already go through the private `gif_mem_*` facade. The active backends are BUILTIN, PRIVATE, LIBC, and LVGL. The caller framebuffer is deliberately outside this allocator domain. Existing facade tests provide allocation tracking and controlled allocation failure; the BUILTIN test target provides fixed-pool integrity coverage. No public allocator API is available or required for this work.
 
@@ -54,7 +54,7 @@ This rectangle snapshot is selected over two alternatives:
 
 ### 3.2 Deferred-disposal state
 
-The core will replace the method-2-specific pending flag with one private pending-disposal state: none, restore-to-background, or restore-to-previous. It will retain one valid rectangle for either restoration mode and, only for method 3, one owned packed snapshot pointer.
+The core replaces the method-2-specific pending flag with one private pending-disposal state: none, restore-to-background, or restore-to-previous. It retains one valid rectangle for either restoration mode and, only for method 3, one owned packed snapshot pointer.
 
 At the start of each new image operation, after the incoming image descriptor has been validated:
 
@@ -107,9 +107,9 @@ The ordinary fixture suite will add hand-authored composition streams with exact
 - truncated input, source I/O failure, and controlled snapshot-allocation failure after a method-3 frame is pending;
 - repeated open/decode/close cycles with allocation balance checks.
 
-The existing allocation-tracking facade tests will verify temporary and pending snapshot cleanup. The fixed-pool BUILTIN test will gain a method-3 pressure case that proves a constrained pool reports `GIF_STATUS_OUT_OF_MEMORY` cleanly and remains internally consistent after close. The existing LIBC and LVGL facade targets exercise the same core path.
+The allocation-tracking facade tests verify temporary and pending snapshot cleanup, including a controlled snapshot-allocation failure. The enabled configuration runs the same fixture suite through PRIVATE, LIBC, and LVGL; the opt-in compatibility matrix runs `dispose_previous.gif` through BUILTIN as well. The existing constrained BUILTIN construction check remains a separate allocation-boundary regression.
 
-After normal regression passes, the opt-in compatibility harness will promote `valid/dispose_previous.gif` from deliberately unsupported to supported-valid, freeze one structural lifecycle outcome, and add RGB888 composition hashes if its content provides useful independent coverage. Its sparse one-byte-read, lifecycle, and backend smoke selections will include that case. Host sanitizer builds and the existing ARM BUILTIN/PRIVATE builds will be rerun; BUILTIN’s unresolved-symbol audit must remain free of C-library heap allocation symbols.
+The opt-in compatibility harness promotes `valid/dispose_previous.gif` from deliberately unsupported to supported-valid in an enabled build while retaining the disabled-build status assertion. Its backend smoke selection includes that case. The host instrumentation build and ARM BUILTIN/PRIVATE builds are rerun; BUILTIN’s unresolved-symbol audit remains free of C-library heap allocation symbols.
 
 ## 7. Memory and documentation acceptance criteria
 

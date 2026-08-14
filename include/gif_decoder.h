@@ -83,7 +83,8 @@ typedef struct GifOutputSurface {
  * converted to milliseconds; zero remains zero and timing policy belongs to
  * the application. The updated rectangle conservatively covers the image
  * rectangle even when transparent pixels remain unchanged and, when disposal
- * method 2 restores the preceding frame, the restored rectangle as well.
+ * method 2 or enabled disposal method 3 restores the preceding frame, the
+ * restored rectangle as well.
  */
 typedef struct GifFrameInfo {
     uint32_t frame_index;    /**< Zero-based decoded frame number. */

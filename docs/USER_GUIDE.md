@@ -29,7 +29,13 @@ The library does not add allocator locks. The application must serialize decoder
 
 For fixed-pool sizing and static-RAM planning, see [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md).
 
-### 1.2 Complete the platform byte-source port
+### 1.2 Select optional Restore-to-Previous support
+
+Disposal methods 0, 1, and 2 are always available. A GIF that requests disposal method 3 (Restore to Previous) is accepted only when `GIF_ENABLE_DISPOSAL_METHOD_3` is `1`; it remains deliberately unsupported by the default `0` build. CMake users can select it with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`.
+
+Method 3 preserves the caller-owned framebuffer model, but the decoder retains one tightly packed pre-composition image rectangle while that frame remains pending. For a fixed-pool product, include the declared maximum snapshot cost in the pool plan. [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md) defines that calculation and the calculator input. The framebuffer itself remains outside the decoder pool.
+
+### 1.3 Complete the platform byte-source port
 
 The decoder consumes sequential bytes. Before use, implement the open/read/close operations in the single target-owned file `port/gif_porting.c`. The application selects a resource through `GifDecoderConfig.source_identifier`; the port alone interprets that opaque value and obtains bytes from the target.
 
@@ -37,7 +43,7 @@ The port does not need a pathname, filesystem, seek operation, file size, or a s
 
 Follow [PORTING_GUIDE.md](PORTING_GUIDE.md) before integrating the API. It is the authoritative contract for dynamic-handle ownership, read byte counts and terminal statuses, cleanup, pool budgeting, and generic, FatFs, and memory-backed reference ports. Its imaginary `storage_open()`, `storage_read()`, and `storage_close()` names are teaching placeholders for the target's own byte-source operations.
 
-### 1.3 Prepare application services
+### 1.4 Prepare application services
 
 The application must provide three product-specific responsibilities outside the library:
 
@@ -126,7 +132,7 @@ The library copies the descriptor, not the pixel data. The storage it identifies
 | `updated_left`, `updated_top` | Origin of the canvas rectangle reported as updated. |
 | `updated_width`, `updated_height` | Dimensions of the reported updated rectangle. |
 
-The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. The reported updated rectangle conservatively covers the image rectangle and, when the preceding frame used disposal method 2, the rectangle restored to the logical background immediately before this frame was composed. It may therefore include transparent or otherwise visually unchanged pixels.
+The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. The reported updated rectangle conservatively covers the image rectangle and, when the preceding frame used disposal method 2 or enabled disposal method 3, the rectangle restored immediately before this frame was composed. It may therefore include transparent or otherwise visually unchanged pixels.
 
 #### `GifStatus`
 

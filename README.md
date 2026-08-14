@@ -12,7 +12,7 @@ The library deliberately does not open files, own a display, schedule playback, 
 - Present complete RGB888, BGR888, or RGB565 frames from a framebuffer that remains owned by the application.
 - Use a bounded, library-owned pool by default, or select PRIVATE, LIBC, or LVGL allocation backends at build time.
 
-The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Disposal method 3, Plain Text extensions, and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`.
+The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Restore-to-previous (disposal method 3) is an optional build feature: it is disabled by default and enabled with `GIF_ENABLE_DISPOSAL_METHOD_3=1` (or CMake `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`). Plain Text extensions and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`; method 3 does so when its optional feature is disabled.
 
 ## Quick start
 

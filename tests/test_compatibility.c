@@ -15,6 +15,7 @@
 #endif
 
 #include "gif_decoder.h"
+#include "gif_config.h"
 
 #include "test_porting.h"
 
@@ -78,7 +79,11 @@ static const CompatibilityCase compatibility_cases[] = {
     {"valid/delay_1s.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
     {"valid/dispose_background.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
     {"valid/dispose_none.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    {"valid/dispose_previous.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
+#else
     {"valid/dispose_previous.gif", "deliberately-unsupported", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_UNSUPPORTED_FEATURE, 0U, 8U, 8U},
+#endif
     {"valid/dispose_unspecified.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
     {"valid/global_ct_only.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
     {"valid/local_ct.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
@@ -545,7 +550,8 @@ static void run_backend_smoke(void) {
     static const char *const selected[] = {
         "valid/anim_10frame.gif", "valid/static_interlaced.gif",
         "valid/dispose_background.gif", "invalid/bad_lzw_code.gif",
-        "invalid/truncated_lzw.gif", "invalid/zero_dimensions.gif",
+        "valid/dispose_previous.gif", "invalid/truncated_lzw.gif",
+        "invalid/zero_dimensions.gif",
     };
     size_t index;
 
