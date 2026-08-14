@@ -6,17 +6,17 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 
 ## HIGH — next work
 
-No active HIGH-priority item is scheduled. The completed corpus classification, sparse compatibility matrix, host instrumentation runs, and sustained host-only fuzz evidence are recorded in [HOST_VALIDATION.md](HOST_VALIDATION.md). Future corpus expansion requires a demonstrated gap and clear asset provenance; it is not a standing task.
+### Disposal method 3 — Restore to Previous
+
+- Implement optional restore-to-previous while preserving the current public decoder lifecycle and caller-owned framebuffer model. Disabled builds must retain the current unsupported-feature result without carrying method-3 snapshot state.
+- Follow the reviewed [implementation plan](DISPOSAL_METHOD_3_PLAN.md): define the required backup-memory cost, ownership, and failure behavior before implementation; do not silently add a second full canvas.
+- Add multi-frame composition regression coverage for disposal methods 0, 1, 2, and 3, including transparency, partial rectangles, palette selection, consecutive disposal-3 frames, cleanup, and updated-rectangle semantics.
 
 ## MID-HIGH — planned after the immediate work
 
 No work is currently scheduled at this priority.
 
 ## MID — useful, but not the next priority
-
-### Stage 9 — Disposal method 3
-
-- Implement restore-to-previous only after method 2 is stable. First define and document the required backup-memory cost and failure behavior; do not silently add a second full canvas.
 
 ### Stage 10 — Auditability and integration guidance
 
