@@ -22,24 +22,81 @@ if(GIFLIB_ENABLE_HOST_SANITIZERS)
             /fsanitize=address
             /Zi
         )
-        set(GIFLIB_HOST_SANITIZER_LINK_OPTIONS
-            /fsanitize=address
-        )
+        if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+            # CMake invokes lld-link directly for a clang-cl target, and
+            # lld-link does not accept the compiler-driver spelling. clang-cl
+            # records its ASan dependency in the instrumented object files.
+            set(GIFLIB_HOST_SANITIZER_LINK_OPTIONS)
+        else()
+            set(GIFLIB_HOST_SANITIZER_LINK_OPTIONS
+                /fsanitize=address
+            )
+        endif()
         set(GIFLIB_HOST_SANITIZER_DESCRIPTION "AddressSanitizer")
 
-        get_filename_component(GIFLIB_HOST_SANITIZER_RUNTIME_DIR
-            "${CMAKE_C_COMPILER}" DIRECTORY)
+        # clang-cl AddressSanitizer does not support Visual Studio's Debug
+        # CRT (/MDd). Select the dynamic release CRT for this opt-in host
+        # instrumentation configuration only.
+        if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+            set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING
+                "MSVC runtime required by clang-cl AddressSanitizer" FORCE)
+        endif()
+
+        # clang-cl stores compiler-rt below its resource directory, while
+        # cl.exe-based ASan installations place the DLL beside the compiler.
+        # Ask clang itself when it is the selected C compiler so the runtime
+        # lookup also works for the opt-in libFuzzer build.
+        if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+            execute_process(
+                COMMAND "${CMAKE_C_COMPILER}" --print-runtime-dir
+                RESULT_VARIABLE giflib_runtime_dir_result
+                OUTPUT_VARIABLE GIFLIB_HOST_SANITIZER_RUNTIME_DIR
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            if(NOT giflib_runtime_dir_result EQUAL 0 OR
+               GIFLIB_HOST_SANITIZER_RUNTIME_DIR STREQUAL "")
+                message(FATAL_ERROR
+                    "GIFLIB_ENABLE_HOST_SANITIZERS could not determine the "
+                    "clang-cl compiler runtime directory")
+            endif()
+            # On Windows, --print-runtime-dir identifies the target-specific
+            # library directory (for example lib/x86_64-pc-windows-msvc),
+            # whereas the shared ASan runtime resides in the sibling
+            # lib/windows directory.
+            get_filename_component(GIFLIB_HOST_SANITIZER_RUNTIME_ROOT
+                "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}" DIRECTORY)
+            set(GIFLIB_HOST_SANITIZER_RUNTIME_DIR
+                "${GIFLIB_HOST_SANITIZER_RUNTIME_ROOT}/windows")
+        else()
+            get_filename_component(GIFLIB_HOST_SANITIZER_RUNTIME_DIR
+                "${CMAKE_C_COMPILER}" DIRECTORY)
+        endif()
         if(CMAKE_SIZEOF_VOID_P EQUAL 8)
             set(GIFLIB_HOST_SANITIZER_RUNTIME
                 "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}/clang_rt.asan_dynamic-x86_64.dll")
+            set(giflib_host_sanitizer_runtime_library_name
+                "clang_rt.asan_dynamic-x86_64.lib")
         else()
             set(GIFLIB_HOST_SANITIZER_RUNTIME
                 "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}/clang_rt.asan_dynamic-i386.dll")
+            set(giflib_host_sanitizer_runtime_library_name
+                "clang_rt.asan_dynamic-i386.lib")
         endif()
         if(NOT EXISTS "${GIFLIB_HOST_SANITIZER_RUNTIME}")
             message(FATAL_ERROR
                 "GIFLIB_ENABLE_HOST_SANITIZERS could not find the MSVC "
                 "AddressSanitizer runtime beside ${CMAKE_C_COMPILER}")
+        endif()
+        if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+            find_file(GIFLIB_HOST_SANITIZER_RUNTIME_LIBRARY
+                NAMES "${giflib_host_sanitizer_runtime_library_name}"
+                PATHS "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}"
+                NO_DEFAULT_PATH)
+            if(NOT GIFLIB_HOST_SANITIZER_RUNTIME_LIBRARY)
+                message(FATAL_ERROR
+                    "GIFLIB_ENABLE_HOST_SANITIZERS could not find the "
+                    "clang-cl AddressSanitizer import library")
+            endif()
         endif()
     elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         set(GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS
@@ -57,23 +114,62 @@ if(GIFLIB_ENABLE_HOST_SANITIZERS)
             "or Clang with supported sanitizer runtimes")
     endif()
 
+    if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang" AND NOT MSVC)
+        execute_process(
+            COMMAND "${CMAKE_C_COMPILER}" --print-runtime-dir
+            RESULT_VARIABLE giflib_native_clang_runtime_dir_result
+            OUTPUT_VARIABLE giflib_native_clang_runtime_dir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(NOT giflib_native_clang_runtime_dir_result EQUAL 0 OR
+           giflib_native_clang_runtime_dir STREQUAL "")
+            message(FATAL_ERROR
+                "GIFLIB_ENABLE_HOST_SANITIZERS could not determine the "
+                "Windows Clang runtime directory")
+        endif()
+        get_filename_component(giflib_native_clang_runtime_root
+            "${giflib_native_clang_runtime_dir}" DIRECTORY)
+        set(GIFLIB_HOST_SANITIZER_RUNTIME
+            "${giflib_native_clang_runtime_root}/windows/clang_rt.asan_dynamic-x86_64.dll")
+        if(NOT EXISTS "${GIFLIB_HOST_SANITIZER_RUNTIME}")
+            message(FATAL_ERROR
+                "GIFLIB_ENABLE_HOST_SANITIZERS could not find the Windows "
+                "Clang runtime DLL")
+        endif()
+    endif()
+
     # Accepting a sanitizer flag is insufficient: some host toolchains omit
     # its runtime libraries. Probe a complete link so an unsupported
     # toolchain fails at configuration time, before every test target builds.
     include(CheckCSourceCompiles)
     set(giflib_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
     set(giflib_saved_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
+    set(giflib_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
     string(JOIN " " giflib_host_sanitizer_flags
         ${GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS})
     set(CMAKE_REQUIRED_FLAGS
         "${CMAKE_REQUIRED_FLAGS} ${giflib_host_sanitizer_flags}")
+    if(MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+        # CheckCSourceCompiles creates a Debug try-compile target before the
+        # project targets inherit CMAKE_MSVC_RUNTIME_LIBRARY. Override its
+        # default /MDd explicitly so clang-cl can link the check program.
+        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} /MD")
+    endif()
     list(APPEND CMAKE_REQUIRED_LINK_OPTIONS
         ${GIFLIB_HOST_SANITIZER_LINK_OPTIONS})
+    if(MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang")
+        list(APPEND CMAKE_REQUIRED_LIBRARIES
+            "${GIFLIB_HOST_SANITIZER_RUNTIME_LIBRARY}")
+    endif()
+    # The probe follows the selected compiler and runtime flags. Do not retain
+    # an earlier negative result after a host compiler/runtime update.
+    unset(GIFLIB_HOST_SANITIZER_RUNTIME_AVAILABLE CACHE)
     check_c_source_compiles(
         "int main(void) { return 0; }"
         GIFLIB_HOST_SANITIZER_RUNTIME_AVAILABLE)
     set(CMAKE_REQUIRED_FLAGS "${giflib_saved_required_flags}")
     set(CMAKE_REQUIRED_LINK_OPTIONS "${giflib_saved_required_link_options}")
+    set(CMAKE_REQUIRED_LIBRARIES "${giflib_saved_required_libraries}")
 
     if(NOT GIFLIB_HOST_SANITIZER_RUNTIME_AVAILABLE)
         message(FATAL_ERROR
@@ -158,6 +254,19 @@ function(giflib_apply_common_options target)
             if(MSVC)
                 # Keep the MSVC ASan runtime beside local host-test binaries.
                 # This command is unreachable in ordinary and target builds.
+                add_custom_command(TARGET ${target} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${GIFLIB_HOST_SANITIZER_RUNTIME}"
+                        "$<TARGET_FILE_DIR:${target}>"
+                    VERBATIM)
+                if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+                    target_link_libraries(${target} PRIVATE
+                        "${GIFLIB_HOST_SANITIZER_RUNTIME_LIBRARY}")
+                endif()
+            endif()
+            if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang" AND NOT MSVC)
+                # Native Windows Clang links the runtime correctly, but the
+                # dynamically loaded DLL must accompany the host executable.
                 add_custom_command(TARGET ${target} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${GIFLIB_HOST_SANITIZER_RUNTIME}"
@@ -248,6 +357,8 @@ option(GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS
        "Build the opt-in host test against a local external GIF corpus" OFF)
 set(GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR "" CACHE PATH
     "Path to the local gif-conformance corpus (opt-in compatibility test only)")
+option(GIFLIB_BUILD_FUZZER
+       "Build the host-only clang/libFuzzer decoder harness" OFF)
 
 if(GIFLIB_BUILD_TESTS)
     enable_testing()
@@ -585,6 +696,50 @@ if(GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS)
         giflib_local_compatibility_libc_tests LIBC TRUE)
     giflib_add_local_compatibility_target(
         giflib_local_compatibility_lvgl_tests LVGL TRUE)
+endif()
+
+# The fuzzer is deliberately an explicit host-only investigation target.  It
+# uses the public facade and the ordinary in-memory test port, but is not a
+# CTest test: libFuzzer owns its own execution loop and corpus state.
+if(GIFLIB_BUILD_FUZZER)
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR
+            "GIFLIB_BUILD_FUZZER is host-only and cannot be used for a "
+            "cross-compiled target build")
+    endif()
+    if(NOT GIFLIB_ENABLE_HOST_SANITIZERS)
+        message(FATAL_ERROR
+            "GIFLIB_BUILD_FUZZER requires GIFLIB_ENABLE_HOST_SANITIZERS=ON")
+    endif()
+    if(NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "GIFLIB_BUILD_FUZZER requires a Clang compiler with libFuzzer")
+    endif()
+    if(MSVC)
+        message(FATAL_ERROR
+            "GIFLIB_BUILD_FUZZER requires Clang's GNU-like command line; "
+            "configure it with clang.exe and Ninja")
+    endif()
+
+    add_executable(gif_decoder_fuzzer
+        tests/fuzz_decoder.c
+        tests/test_porting.c
+        src/gif_decoder.c
+        ${GIFLIB_DECODER_CORE_SOURCES}
+    )
+    giflib_add_memory_backend(gif_decoder_fuzzer LIBC)
+    target_include_directories(gif_decoder_fuzzer PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/port"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
+    )
+    target_compile_options(gif_decoder_fuzzer PRIVATE -fsanitize=fuzzer)
+    target_link_options(gif_decoder_fuzzer PRIVATE -fsanitize=fuzzer)
+    giflib_apply_common_options(gif_decoder_fuzzer)
 endif()
 
 if(GIFLIB_BUILD_EXAMPLES)

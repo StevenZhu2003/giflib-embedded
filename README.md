@@ -34,6 +34,7 @@ cmake --build build/host
 - [Memory Configuration](docs/MEMORY_CONFIGURATION.md) — backend selection, pool sizing profiles, and RAM boundaries.
 - [BUILTIN Pool Sizing and Fragmentation Study](docs/BUILTIN_POOL_SIZING_STUDY.md) — evidence and methodology behind the BUILTIN sizing profiles.
 - [Pool sizing calculator](tools/estimate_builtin_pool.py) — a planning utility; validate the final target and actual GIF corpus separately.
+- [Host Fuzz Testing](docs/FUZZING.md) — opt-in clang/libFuzzer workflow and local artifact-handling guidance.
 - [Embedded player example](examples/embedded_player/README.md) — a small, platform-independent reference application.
 - [Project TODO list](docs/TODO_LIST.md) — planned work only, not feature promises.
 

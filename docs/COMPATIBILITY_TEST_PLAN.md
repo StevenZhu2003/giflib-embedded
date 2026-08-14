@@ -108,7 +108,7 @@ Use that configuration to run:
 - the ordinary host regression and example; and
 - the opt-in compatibility corpus harness when its local corpus path is available.
 
-Sanitizers are not prerequisites for the initial corpus classification and are never enabled for target builds. Fuzzing remains deferred: a future fuzz entry point must accept arbitrary bytes through the same memory-backed port and always execute close after a successful open, with a small local seed directory derived from the licensed corpus plus project-original minimal fixtures.
+Sanitizers are not prerequisites for the initial corpus classification and are never enabled for target builds. The implemented host-only `gif_decoder_fuzzer` accepts arbitrary bytes through the same memory-backed port and always closes every successful open. It uses four bounded input/read variants per generated unit, including final-byte and arbitrary-position truncation, and initializes its local seed directory from the licensed corpus. Its build boundary, sanitizer requirements, artifact handling, and manual campaign workflow are defined in [FUZZING.md](FUZZING.md).
 
 ## 8. Acceptance criteria
 
@@ -128,5 +128,6 @@ Stage 8 is complete only when:
 2. **Completed:** Freeze classifications and structural outcomes after reviewing discrepancies against public documentation and supported-feature policy.
 3. **Completed:** Implement the opt-in host harness and bounded short-read/lifecycle matrix.
 4. **Completed:** Add reviewed composition oracles for high-value geometry, transparency, interlace, and disposal cases.
-5. **Completed:** Run the selected BUILTIN, LIBC, and LVGL smoke matrix; validate the host-only sanitizer configuration using MSVC 19.51 ASan and GCC 13.3 ASan+UBSan. Fuzzing remains deferred.
-6. Update user-facing support documentation only after a behavior is implemented, tested, and stable.
+5. **Completed:** Run the selected BUILTIN, LIBC, and LVGL smoke matrix; validate the host-only sanitizer configuration using MSVC 19.51 ASan and GCC 13.3 ASan+UBSan; implement the opt-in host-only libFuzzer harness and manual campaign runner.
+6. **Next:** Run and review a sustained fuzz campaign before using fuzz results as release evidence.
+7. Update user-facing support documentation only after a behavior is implemented, tested, and stable.
