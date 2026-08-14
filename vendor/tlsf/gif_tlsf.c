@@ -27,9 +27,9 @@
 ** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 ** SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **
-** This source is derived from LVGL's TLSF integration as recorded in
-** docs/TLSF_LINEAGE.md. Project changes are limited to de-LVGL integration,
-** the gif_tlsf namespace, and a fixed GIF pool configuration.
+** This source is derived from LVGL's TLSF integration as recorded in the
+** repository THIRD_PARTY_NOTICES.md. Project changes are limited to de-LVGL
+** integration, the gif_tlsf namespace, and a fixed GIF pool configuration.
 */
 
 #include "gif_tlsf.h"

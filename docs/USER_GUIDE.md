@@ -140,7 +140,7 @@ Every public operation returns a `GifStatus` unless otherwise specified.
 | `GIF_STATUS_IO_ERROR` | The port could not open or continue reading the source. Diagnose the target byte-source port. |
 | `GIF_STATUS_UNEXPECTED_EOF` | Input ended before a complete GIF structure. Treat the resource as truncated or diagnose read progress. |
 | `GIF_STATUS_INVALID_FORMAT` | The resource is not a valid supported GIF. Reject or replace it. |
-| `GIF_STATUS_UNSUPPORTED_FEATURE` | The GIF uses intentionally unimplemented semantics. Reject it or consult [TODO_LIST.md](TODO_LIST.md). |
+| `GIF_STATUS_UNSUPPORTED_FEATURE` | The GIF uses intentionally unimplemented semantics. Reject it or apply product policy; the current support boundary is summarized in the [README](../README.md). |
 | `GIF_STATUS_BUFFER_TOO_SMALL` | The proposed output storage capacity or stride cannot represent the canvas. Provide a valid surface and call `gif_decoder_bind_output()` again. |
 | `GIF_STATUS_INTERNAL_ERROR` | An internal invariant failed. Close, preserve diagnostics, and report a reproducible case. |
 | `GIF_STATUS_INVALID_STATE` | A function was called in the wrong lifecycle state. Correct the call order. |

@@ -6,10 +6,7 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 
 ## HIGH — next work
 
-### Stage 8 — Compatibility corpus and host-side malformed-input hardening
-
-- Add a small, curated GIF corpus only where each asset has clear provenance and a stable expected result; cover valid composition cases and malformed/truncated inputs not represented by the current synthetic fixtures.
-- Add host-only fuzzing and sanitizer coverage when the corpus and build support are ready. Keep it outside target builds and do not claim real-hardware sanitizer validation.
+No active HIGH-priority item is scheduled. The completed corpus classification, sparse compatibility matrix, host instrumentation runs, and sustained host-only fuzz evidence are recorded in [HOST_VALIDATION.md](HOST_VALIDATION.md). Future corpus expansion requires a demonstrated gap and clear asset provenance; it is not a standing task.
 
 ## MID-HIGH — planned after the immediate work
 
@@ -31,7 +28,9 @@ No work is currently scheduled at this priority.
 ### Stage 11 — Measured integration and performance follow-up
 
 - Consider a maintained real-hardware reference or reproducible benchmark only when a target integration can be built, run, and maintained without placing a vendor SDK or board policy in the core repository.
-- Evaluate a port-layer read-ahead example for storage backends only after target measurements show that small sequential reads are a bottleneck; do not add filesystem-specific buffering to the decoder.
+- **Confirmed baseline:** the synchronous decoder path has no busy-wait or external-event polling. `gif_decoder_open()` and `gif_decoder_next_frame()` synchronously reach `gif_porting_read()` through giflib's input callback; the short-read bridge accepts only positive progress and converts a zero-byte `GIF_PORTING_OK` result into an I/O failure. Parser/LZW loops are bounded decode computation, not waiting. Frame delay remains entirely application policy; the hosted example's `clock()` delay loop is example-only and is not decoder behavior.
+- **Platform-specific boundary:** a port may perform ordinary blocking I/O, or start DMA/asynchronous I/O inside `gif_porting_read()` and wait on its platform's completion primitive before returning. It must still return only produced bytes, final EOF, or an I/O error; the stable synchronous callback contract has no pending/would-block result. No scheduler, semaphore, notification, cache, or device API belongs in decoder core.
+- **Pending validation:** evaluate a target-owned read-ahead or DMA-backed port only after measurements show that small sequential reads are a bottleneck. Validate destination-DMA accessibility, cache/ownership rules, timeout/cancellation behavior, close-with-operation-in-flight handling, and the cost of small giflib read requests. Do not add filesystem-specific buffering or a generic asynchronous API to the decoder without that evidence.
 - Consider an LVGL integration example only when it can test a supported LVGL release as a real consumer, rather than duplicating the existing allocator mock coverage.
 - Consider corpus-specific host-side sizing tooling only when it can accept a real GIF corpus, declared concurrency and lifecycle constraints, and an equivalent production allocator path. It should search a minimum passing pool and report measured, Balanced, and Hardened recommendations; optional fragmentation stress must remain optional rather than becoming a target dependency.
 

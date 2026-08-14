@@ -2,6 +2,8 @@
 /build/
 /cmake-build-*/
 /_TEMP/
+/testdata/compatibility_corpus/
+/testdata/fuzz/
 CMakeCache.txt
 CMakeFiles/
 CTestTestfile.cmake
