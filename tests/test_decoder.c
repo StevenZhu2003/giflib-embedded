@@ -310,6 +310,30 @@ static GifStatus bind_output(GifDecoder *decoder,
     return gif_decoder_bind_output(decoder, &surface);
 }
 
+/** @brief Convert one 24-bit RGB color to the documented RGB565 word. */
+static uint16_t pack_rgb565(uint8_t red, uint8_t green, uint8_t blue) {
+    return (uint16_t)(((uint16_t)(red >> 3U) << 11U) |
+                      ((uint16_t)(green >> 2U) << 5U) |
+                      (uint16_t)(blue >> 3U));
+}
+
+/** @brief Read one potentially unaligned native-endian RGB565 word. */
+static uint16_t load_rgb565(const uint8_t *pixels, size_t offset) {
+    uint16_t packed;
+
+    memcpy(&packed, pixels + offset, sizeof(packed));
+    return packed;
+}
+
+/** @brief Compare one RGB565 output pixel without assuming host byte order. */
+static void check_rgb565_pixel(const uint8_t *pixels,
+                               size_t offset,
+                               uint8_t red,
+                               uint8_t green,
+                               uint8_t blue) {
+    CHECK(load_rgb565(pixels, offset) == pack_rgb565(red, green, blue));
+}
+
 /** @brief Verify open-time metadata obtained from a memory-backed source. */
 static void test_open_memory_source(void) {
     MemorySource source;
@@ -543,6 +567,20 @@ static void test_output_surface_validation(void) {
 
     CHECK(gif_decoder_next_frame(decoder, &frame) ==
           GIF_STATUS_INVALID_STATE);
+
+    surface.pixel_format = GIF_PIXEL_RGB565;
+    surface.stride_bytes = 3;
+    surface.capacity_bytes = sizeof(pixels);
+    CHECK(gif_decoder_bind_output(decoder, &surface) ==
+          GIF_STATUS_BUFFER_TOO_SMALL);
+
+    surface.stride_bytes = 4;
+    surface.capacity_bytes = 11;
+    CHECK(gif_decoder_bind_output(decoder, &surface) ==
+          GIF_STATUS_BUFFER_TOO_SMALL);
+
+    surface.capacity_bytes = 12;
+    CHECK(gif_decoder_bind_output(decoder, &surface) == GIF_STATUS_OK);
     gif_decoder_close(decoder);
 }
 
@@ -605,6 +643,35 @@ static void test_bgr888_and_local_palette(void) {
     CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
     CHECK(pixels[0] == 0xcc && pixels[1] == 0xbb && pixels[2] == 0xaa);
     CHECK(pixels[3] == 0x66 && pixels[4] == 0x55 && pixels[5] == 0x44);
+    gif_decoder_close(decoder);
+}
+
+/** @brief Decode RGB565 words while preserving byte-addressed row padding. */
+static void test_rgb565_and_stride(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+
+    memset(pixels, 0xee, sizeof(pixels));
+    memory_source_init(&source, gif_two_pixel_global,
+                       sizeof(gif_two_pixel_global));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB565) == GIF_STATUS_OK);
+    check_rgb565_pixel(pixels, 0U, 0x00, 0x00, 0x00);
+    check_rgb565_pixel(pixels, 2U, 0x00, 0x00, 0x00);
+    CHECK(pixels[4] == 0xee && pixels[5] == 0xee);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    check_rgb565_pixel(pixels, 0U, 0x00, 0x00, 0x00);
+    check_rgb565_pixel(pixels, 2U, 0x11, 0x22, 0x33);
+    CHECK(pixels[4] == 0xee && pixels[5] == 0xee);
     gif_decoder_close(decoder);
 }
 
@@ -880,6 +947,64 @@ static void test_disposal_composition(void) {
     CHECK(pixels[0] == 0x11 && pixels[1] == 0x22 && pixels[2] == 0x33);
     CHECK(pixels[3] == 0x10 && pixels[4] == 0x20 && pixels[5] == 0x30);
     CHECK(pixels[6] == 0x10 && pixels[7] == 0x20 && pixels[8] == 0x30);
+    CHECK(gif_decoder_next_frame(decoder, &frame) ==
+          GIF_STATUS_END_OF_STREAM);
+    gif_decoder_close(decoder);
+}
+
+/**
+ * @brief Compose global/local palettes, transparency, and disposal 0/1/2 in RGB565.
+ *
+ * This mirrors the RGB888 composition fixture so direct 16-bit composition
+ * cannot regress background initialization, partial rectangles, or deferred
+ * disposal handling.
+ */
+static void test_rgb565_disposal_composition(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[8];
+
+    memset(pixels, 0xee, sizeof(pixels));
+    memory_source_init(&source, gif_disposal_composition,
+                       sizeof(gif_disposal_composition));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder == NULL) {
+        return;
+    }
+
+    CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                      GIF_PIXEL_RGB565) == GIF_STATUS_OK);
+    check_rgb565_pixel(pixels, 0U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+    CHECK(pixels[6] == 0xee && pixels[7] == 0xee);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 1);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 1);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x44, 0x55, 0x66);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 1 && frame.updated_width == 2);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x77, 0x88, 0x99);
+
+    CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+    CHECK(frame.updated_left == 0 && frame.updated_width == 3);
+    check_rgb565_pixel(pixels, 0U, 0x11, 0x22, 0x33);
+    check_rgb565_pixel(pixels, 2U, 0x10, 0x20, 0x30);
+    check_rgb565_pixel(pixels, 4U, 0x10, 0x20, 0x30);
+    CHECK(pixels[6] == 0xee && pixels[7] == 0xee);
     CHECK(gif_decoder_next_frame(decoder, &frame) ==
           GIF_STATUS_END_OF_STREAM);
     gif_decoder_close(decoder);
@@ -1236,12 +1361,14 @@ int main(void) {
     test_output_surface_validation();
     test_rgb888_and_stride();
     test_bgr888_and_local_palette();
+    test_rgb565_and_stride();
     test_stride_row_advance();
     test_interlaced_row_order();
     test_interlaced_composition();
     test_partial_frame_background();
     test_two_streaming_frames();
     test_disposal_composition();
+    test_rgb565_disposal_composition();
     test_disposal_two_failure_cleanup();
     test_graphics_control_scope();
     test_graphics_control_before_comment();

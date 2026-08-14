@@ -84,11 +84,12 @@ The values describe the selected GIF stream. They are not storage allocation req
 ```c
 typedef enum GifPixelFormat {
     GIF_PIXEL_RGB888 = 0,
-    GIF_PIXEL_BGR888 = 1
+    GIF_PIXEL_BGR888 = 1,
+    GIF_PIXEL_RGB565 = 2
 } GifPixelFormat;
 ```
 
-`GIF_PIXEL_RGB888` writes each output pixel in red, green, blue byte order. `GIF_PIXEL_BGR888` writes blue, green, red byte order. Both formats use three bytes per pixel.
+`GIF_PIXEL_RGB888` writes red, green, blue bytes and `GIF_PIXEL_BGR888` writes blue, green, red bytes; both use three bytes per pixel. `GIF_PIXEL_RGB565` writes one native-endian 16-bit word per pixel with red in bits 15:11, green in bits 10:5, and blue in bits 4:0. It truncates each 8-bit GIF palette component to its most significant 5/6/5 bits. The decoder does not require 16-bit alignment, but a display interface that expects a different wire byte order must swap bytes during application-owned display transfer.
 
 #### `GifOutputSurface`
 
@@ -106,8 +107,8 @@ typedef struct GifOutputSurface {
 | Field | Requirement |
 | --- | --- |
 | `pixels` | Non-null writable storage. The library never owns or frees it. |
-| `capacity_bytes` | Total accessible bytes beginning at `pixels`. It must be at least `(canvas_height - 1) × stride_bytes + canvas_width × 3`. |
-| `stride_bytes` | Byte distance from one canvas row to the next. It must be at least `canvas_width × 3`. |
+| `capacity_bytes` | Total accessible bytes beginning at `pixels`. It must be at least `(canvas_height - 1) × stride_bytes + canvas_width × pixel_bytes`. |
+| `stride_bytes` | Byte distance from one canvas row to the next. It must be at least `canvas_width × pixel_bytes`. |
 | `pixel_format` | One of the supported `GifPixelFormat` values. |
 
 The library copies the descriptor, not the pixel data. The storage it identifies must stay valid and writable after a successful bind until `gif_decoder_close()` returns. Do not change its capacity, stride, format, or ownership while the decoder is active.
@@ -274,16 +275,24 @@ After success, `decoder` owns an open byte source and `stream.canvas_width` and 
 
 ### 3.3 Prepare framebuffer storage from `GifStreamInfo`
 
-The decoder draws the full GIF canvas into application-owned memory. Choose a pixel format, compute a stride of at least `canvas_width * 3`, and ensure the supplied storage is at least `(canvas_height - 1) * stride_bytes + canvas_width * 3`. Check each multiplication and addition against `SIZE_MAX` before using the result. The following uses a tightly packed pre-existing application framebuffer; the allocation mechanism is deliberately outside this guide.
+The decoder draws the full GIF canvas into application-owned memory. Choose a pixel format, use `pixel_bytes = 3` for RGB888/BGR888 or `pixel_bytes = 2` for RGB565, compute a stride of at least `canvas_width * pixel_bytes`, and ensure the supplied storage is at least `(canvas_height - 1) * stride_bytes + canvas_width * pixel_bytes`. Check each multiplication and addition against `SIZE_MAX` before using the result. The following uses a tightly packed pre-existing application framebuffer; the allocation mechanism is deliberately outside this guide.
 
 ```c
-size_t row_bytes = (size_t)stream.canvas_width * 3U;
-size_t required_bytes = row_bytes * (size_t)stream.canvas_height;
+GifPixelFormat pixel_format = GIF_PIXEL_RGB565;
+size_t pixel_bytes = pixel_format == GIF_PIXEL_RGB565 ? 2U : 3U;
+size_t row_bytes;
+size_t required_bytes;
 
 if (stream.canvas_width == 0U ||
-    row_bytes / 3U != (size_t)stream.canvas_width ||
-    (stream.canvas_height != 0U &&
-     required_bytes / (size_t)stream.canvas_height != row_bytes) ||
+    stream.canvas_height == 0U ||
+    (size_t)stream.canvas_width > SIZE_MAX / pixel_bytes) {
+    gif_decoder_close(decoder);
+    return GIF_STATUS_BUFFER_TOO_SMALL;
+}
+
+row_bytes = (size_t)stream.canvas_width * pixel_bytes;
+required_bytes = row_bytes * (size_t)stream.canvas_height;
+if (required_bytes / (size_t)stream.canvas_height != row_bytes ||
     framebuffer_capacity_bytes < required_bytes) {
     gif_decoder_close(decoder);
     return GIF_STATUS_BUFFER_TOO_SMALL;
@@ -301,7 +310,7 @@ GifOutputSurface surface = {
     .pixels = framebuffer_pixels,
     .capacity_bytes = framebuffer_capacity_bytes,
     .stride_bytes = row_bytes,
-    .pixel_format = GIF_PIXEL_RGB888
+    .pixel_format = pixel_format
 };
 
 status = gif_decoder_bind_output(decoder, &surface);
@@ -370,6 +379,7 @@ The integration has two separate parts. First complete the standard dynamic-hand
 
 ```c
 #include <gif_decoder.h>
+#include <stdint.h>
 
 extern void display_completed_gif_frame(const GifOutputSurface *surface,
                                         const GifStreamInfo *stream,
@@ -378,17 +388,24 @@ extern void wait_for_gif_delay_ms(uint32_t delay_ms);
 
 GifStatus play_selected_gif(const void *resource,
                             void *framebuffer_pixels,
-                            size_t framebuffer_capacity_bytes) {
+                            size_t framebuffer_capacity_bytes,
+                            GifPixelFormat pixel_format) {
     GifDecoderConfig config = { .source_identifier = resource };
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
     GifOutputSurface surface;
     GifFrameInfo frame;
     GifStatus status;
+    size_t pixel_bytes;
     size_t row_bytes;
     size_t required_bytes;
 
     if (resource == NULL || framebuffer_pixels == NULL) {
+        return GIF_STATUS_INVALID_ARGUMENT;
+    }
+    if (pixel_format != GIF_PIXEL_RGB888 &&
+        pixel_format != GIF_PIXEL_BGR888 &&
+        pixel_format != GIF_PIXEL_RGB565) {
         return GIF_STATUS_INVALID_ARGUMENT;
     }
 
@@ -397,12 +414,15 @@ GifStatus play_selected_gif(const void *resource,
         return status;
     }
 
-    row_bytes = (size_t)stream.canvas_width * 3U;
+    pixel_bytes = pixel_format == GIF_PIXEL_RGB565 ? 2U : 3U;
+    if (stream.canvas_width == 0U || stream.canvas_height == 0U ||
+        (size_t)stream.canvas_width > SIZE_MAX / pixel_bytes) {
+        status = GIF_STATUS_BUFFER_TOO_SMALL;
+        goto cleanup;
+    }
+    row_bytes = (size_t)stream.canvas_width * pixel_bytes;
     required_bytes = row_bytes * (size_t)stream.canvas_height;
-    if (stream.canvas_width == 0U ||
-        row_bytes / 3U != (size_t)stream.canvas_width ||
-        (stream.canvas_height != 0U &&
-         required_bytes / (size_t)stream.canvas_height != row_bytes) ||
+    if (required_bytes / (size_t)stream.canvas_height != row_bytes ||
         framebuffer_capacity_bytes < required_bytes) {
         status = GIF_STATUS_BUFFER_TOO_SMALL;
         goto cleanup;
@@ -411,7 +431,7 @@ GifStatus play_selected_gif(const void *resource,
     surface.pixels = framebuffer_pixels;
     surface.capacity_bytes = framebuffer_capacity_bytes;
     surface.stride_bytes = row_bytes;
-    surface.pixel_format = GIF_PIXEL_RGB888;
+    surface.pixel_format = pixel_format;
     status = gif_decoder_bind_output(decoder, &surface);
     if (status != GIF_STATUS_OK) {
         goto cleanup;
