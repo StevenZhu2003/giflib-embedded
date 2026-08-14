@@ -10,7 +10,9 @@ No active HIGH-priority item is scheduled. The completed corpus classification, 
 
 ## MID-HIGH — planned after the immediate work
 
-No work is currently scheduled at this priority.
+### RGB565 output-surface compatibility
+
+- Add an RGB565 caller-owned output-surface format while preserving the current RGB888 contract. Define byte order, RGB888-to-RGB565 quantization, transparency/composition behavior, and regression coverage before implementation. Keep display transfer, cache handling, and scheduling outside the decoder; evaluate BGR565 only as a separately documented format requirement rather than assuming it is interchangeable with RGB565.
 
 ## MID — useful, but not the next priority
 
