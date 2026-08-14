@@ -15,6 +15,7 @@
 #endif
 
 #include "gif_decoder.h"
+#include "gif_config.h"
 
 #include "test_porting.h"
 
@@ -78,7 +79,11 @@ static const CompatibilityCase compatibility_cases[] = {
     {"valid/delay_1s.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
     {"valid/dispose_background.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
     {"valid/dispose_none.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    {"valid/dispose_previous.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
+#else
     {"valid/dispose_previous.gif", "deliberately-unsupported", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_UNSUPPORTED_FEATURE, 0U, 8U, 8U},
+#endif
     {"valid/dispose_unspecified.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 8U, 8U},
     {"valid/global_ct_only.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
     {"valid/local_ct.gif", "supported-valid", GIF_STATUS_OK, GIF_STATUS_OK, GIF_STATUS_END_OF_STREAM, 2U, 4U, 4U},
@@ -259,20 +264,26 @@ static uint8_t *allocate_surface(const GifStreamInfo *stream,
         }
         return pixels;
     }
-    if ((size_t)stream->canvas_width > SIZE_MAX / 3U) {
+    row_bytes = (size_t)stream->canvas_width;
+    if (row_bytes > SIZE_MAX / 3U) {
         return NULL;
     }
-    row_bytes = (size_t)stream->canvas_width * 3U;
+    row_bytes *= 3U;
     if ((size_t)stream->canvas_height > SIZE_MAX / row_bytes) {
         return NULL;
     }
     capacity = row_bytes * (size_t)stream->canvas_height;
-    pixels = (uint8_t *)malloc(capacity);
+    if (capacity > SIZE_MAX / 2U) {
+        return NULL;
+    }
+    pixels = (uint8_t *)malloc(capacity * 2U);
     if (pixels != NULL) {
         memset(pixels, 0xa5, capacity);
         surface->pixels = pixels;
         surface->capacity_bytes = capacity;
         surface->stride_bytes = row_bytes;
+        surface->disposal3_snapshot = pixels + capacity;
+        surface->disposal3_snapshot_capacity_bytes = capacity;
     }
     return pixels;
 }
@@ -545,7 +556,8 @@ static void run_backend_smoke(void) {
     static const char *const selected[] = {
         "valid/anim_10frame.gif", "valid/static_interlaced.gif",
         "valid/dispose_background.gif", "invalid/bad_lzw_code.gif",
-        "invalid/truncated_lzw.gif", "invalid/zero_dimensions.gif",
+        "valid/dispose_previous.gif", "invalid/truncated_lzw.gif",
+        "invalid/zero_dimensions.gif",
     };
     size_t index;
 

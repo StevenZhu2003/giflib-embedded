@@ -29,7 +29,13 @@ The library does not add allocator locks. The application must serialize decoder
 
 For fixed-pool sizing and static-RAM planning, see [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md).
 
-### 1.2 Complete the platform byte-source port
+### 1.2 Select optional Restore-to-Previous support
+
+Disposal methods 0, 1, and 2 are always available. A GIF that requests disposal method 3 (Restore to Previous) is accepted only when `GIF_ENABLE_DISPOSAL_METHOD_3` is `1`; it remains deliberately unsupported by the default `0` build. CMake users can select it with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON`; direct builds define the same public configuration macro. The disabled build carries no method-3 snapshot state or copy path.
+
+Method 3 preserves the caller-owned framebuffer model. When a method-3 frame is decoded, the decoder uses the optional `GifOutputSurface.disposal3_snapshot` supplied by the application; it never obtains snapshot bytes through `gif_mem_*`. Reserve one distinct static snapshot for every concurrently live decoder that may encounter method 3. A null or too-small snapshot returns `GIF_STATUS_BUFFER_TOO_SMALL` at that frame. [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md) defines the separate snapshot calculation. The framebuffer and snapshot both remain outside the decoder pool.
+
+### 1.3 Complete the platform byte-source port
 
 The decoder consumes sequential bytes. Before use, implement the open/read/close operations in the single target-owned file `port/gif_porting.c`. The application selects a resource through `GifDecoderConfig.source_identifier`; the port alone interprets that opaque value and obtains bytes from the target.
 
@@ -37,7 +43,7 @@ The port does not need a pathname, filesystem, seek operation, file size, or a s
 
 Follow [PORTING_GUIDE.md](PORTING_GUIDE.md) before integrating the API. It is the authoritative contract for dynamic-handle ownership, read byte counts and terminal statuses, cleanup, pool budgeting, and generic, FatFs, and memory-backed reference ports. Its imaginary `storage_open()`, `storage_read()`, and `storage_close()` names are teaching placeholders for the target's own byte-source operations.
 
-### 1.3 Prepare application services
+### 1.4 Prepare application services
 
 The application must provide three product-specific responsibilities outside the library:
 
@@ -99,6 +105,8 @@ typedef struct GifOutputSurface {
     size_t capacity_bytes;
     size_t stride_bytes;
     GifPixelFormat pixel_format;
+    void *disposal3_snapshot;
+    size_t disposal3_snapshot_capacity_bytes;
 } GifOutputSurface;
 ```
 
@@ -110,8 +118,10 @@ typedef struct GifOutputSurface {
 | `capacity_bytes` | Total accessible bytes beginning at `pixels`. It must be at least `(canvas_height - 1) × stride_bytes + canvas_width × pixel_bytes`. |
 | `stride_bytes` | Byte distance from one canvas row to the next. It must be at least `canvas_width × pixel_bytes`. |
 | `pixel_format` | One of the supported `GifPixelFormat` values. |
+| `disposal3_snapshot` | Optional distinct writable application storage for enabled disposal method 3. A null value is valid when accepted GIFs do not use method 3. |
+| `disposal3_snapshot_capacity_bytes` | Accessible bytes beginning at `disposal3_snapshot`. It must cover the largest accepted packed image rectangle when method 3 is used. |
 
-The library copies the descriptor, not the pixel data. The storage it identifies must stay valid and writable after a successful bind until `gif_decoder_close()` returns. Do not change its capacity, stride, format, or ownership while the decoder is active.
+The library copies the descriptor, not the pixel data. The storage it identifies must stay valid and writable after a successful bind until `gif_decoder_close()` returns. Initialize every field, preferably with `GifOutputSurface surface = {0};`, then do not change its capacity, stride, format, or ownership while the decoder is active. The library never releases either application buffer.
 
 #### `GifFrameInfo`
 
@@ -126,7 +136,7 @@ The library copies the descriptor, not the pixel data. The storage it identifies
 | `updated_left`, `updated_top` | Origin of the canvas rectangle reported as updated. |
 | `updated_width`, `updated_height` | Dimensions of the reported updated rectangle. |
 
-The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. The reported updated rectangle conservatively covers the image rectangle and, when the preceding frame used disposal method 2, the rectangle restored to the logical background immediately before this frame was composed. It may therefore include transparent or otherwise visually unchanged pixels.
+The completed canvas is already composited when the call returns `GIF_STATUS_OK`. The application chooses whether to display, queue, copy, delay, or otherwise consume it. The reported updated rectangle conservatively covers the image rectangle and, when the preceding frame used disposal method 2 or enabled disposal method 3, the rectangle restored immediately before this frame was composed. It may therefore include transparent or otherwise visually unchanged pixels.
 
 #### `GifStatus`
 
@@ -142,7 +152,7 @@ Every public operation returns a `GifStatus` unless otherwise specified.
 | `GIF_STATUS_UNEXPECTED_EOF` | Input ended before a complete GIF structure. Treat the resource as truncated or diagnose read progress. |
 | `GIF_STATUS_INVALID_FORMAT` | The resource is not a valid supported GIF. Reject or replace it. |
 | `GIF_STATUS_UNSUPPORTED_FEATURE` | The GIF uses intentionally unimplemented semantics. Reject it or apply product policy; the current support boundary is summarized in the [README](../README.md). |
-| `GIF_STATUS_BUFFER_TOO_SMALL` | The proposed output storage capacity or stride cannot represent the canvas. Provide a valid surface and call `gif_decoder_bind_output()` again. |
+| `GIF_STATUS_BUFFER_TOO_SMALL` | The proposed output storage cannot represent the canvas, or an enabled method-3 frame needs absent or insufficient snapshot storage. Correct the surface before starting a new lifecycle. |
 | `GIF_STATUS_INTERNAL_ERROR` | An internal invariant failed. Close, preserve diagnostics, and report a reproducible case. |
 | `GIF_STATUS_INVALID_STATE` | A function was called in the wrong lifecycle state. Correct the call order. |
 
@@ -306,11 +316,17 @@ if (required_bytes / (size_t)stream.canvas_height != row_bytes ||
 Binding gives the decoder a writable destination before the first frame is decoded. Bind once the framebuffer has passed the size check; the application must not release, relocate, or reuse its pixels for unrelated work while the decoder remains bound.
 
 ```c
+/* Leave these as NULL/zero when accepted GIFs cannot use method 3. */
+void *disposal3_snapshot_pixels = NULL;
+size_t disposal3_snapshot_capacity_bytes = 0U;
+
 GifOutputSurface surface = {
     .pixels = framebuffer_pixels,
     .capacity_bytes = framebuffer_capacity_bytes,
     .stride_bytes = row_bytes,
-    .pixel_format = pixel_format
+    .pixel_format = pixel_format,
+    .disposal3_snapshot = disposal3_snapshot_pixels,
+    .disposal3_snapshot_capacity_bytes = disposal3_snapshot_capacity_bytes
 };
 
 status = gif_decoder_bind_output(decoder, &surface);
@@ -320,7 +336,17 @@ if (status != GIF_STATUS_OK) {
 }
 ```
 
-After a successful bind, `surface` may go out of scope because the decoder copied its description, but the pixel storage it describes must remain valid. The decoder is now ready to produce the first completed canvas.
+`disposal3_snapshot_pixels` is optional when the accepted GIF set excludes method 3. Otherwise, reserve a distinct static buffer sized for the largest accepted image rectangle: `maximum_image_width × maximum_image_height × pixel_bytes`. It must not overlap the framebuffer or another live decoder's snapshot. A method-3-capable product normally replaces the null values with its own declared static storage:
+
+```c
+static uint8_t product_disposal3_snapshot[PRODUCT_MAX_D3_SNAPSHOT_BYTES];
+
+surface.disposal3_snapshot = product_disposal3_snapshot;
+surface.disposal3_snapshot_capacity_bytes =
+    sizeof(product_disposal3_snapshot);
+```
+
+After a successful bind, `surface` may go out of scope because the decoder copied its description, but both buffers it describes must remain valid. The decoder is now ready to produce the first completed canvas.
 
 ### 3.5 Decode one frame at a time
 
@@ -389,11 +415,13 @@ extern void wait_for_gif_delay_ms(uint32_t delay_ms);
 GifStatus play_selected_gif(const void *resource,
                             void *framebuffer_pixels,
                             size_t framebuffer_capacity_bytes,
+                            void *disposal3_snapshot_pixels,
+                            size_t disposal3_snapshot_capacity_bytes,
                             GifPixelFormat pixel_format) {
     GifDecoderConfig config = { .source_identifier = resource };
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
-    GifOutputSurface surface;
+    GifOutputSurface surface = {0};
     GifFrameInfo frame;
     GifStatus status;
     size_t pixel_bytes;
@@ -432,6 +460,9 @@ GifStatus play_selected_gif(const void *resource,
     surface.capacity_bytes = framebuffer_capacity_bytes;
     surface.stride_bytes = row_bytes;
     surface.pixel_format = pixel_format;
+    surface.disposal3_snapshot = disposal3_snapshot_pixels;
+    surface.disposal3_snapshot_capacity_bytes =
+        disposal3_snapshot_capacity_bytes;
     status = gif_decoder_bind_output(decoder, &surface);
     if (status != GIF_STATUS_OK) {
         goto cleanup;

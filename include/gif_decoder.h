@@ -29,7 +29,7 @@ typedef enum GifStatus {
     GIF_STATUS_UNEXPECTED_EOF = 5,      /**< Input ended before data was complete. */
     GIF_STATUS_INVALID_FORMAT = 6,      /**< Input is not a valid supported GIF. */
     GIF_STATUS_UNSUPPORTED_FEATURE = 7, /**< GIF semantic is intentionally unsupported. */
-    GIF_STATUS_BUFFER_TOO_SMALL = 8,    /**< Output capacity or stride is too small. */
+    GIF_STATUS_BUFFER_TOO_SMALL = 8,    /**< Output or disposal-3 snapshot is too small. */
     GIF_STATUS_INTERNAL_ERROR = 9,      /**< Unexpected internal decoder failure. */
     GIF_STATUS_INVALID_STATE = 10       /**< Operation is invalid in current state. */
 } GifStatus;
@@ -74,6 +74,19 @@ typedef struct GifOutputSurface {
     size_t capacity_bytes; /**< Accessible bytes beginning at `pixels`. */
     size_t stride_bytes;   /**< Byte distance between consecutive rows. */
     GifPixelFormat pixel_format; /**< Packed pixel layout used by the surface. */
+    /**
+     * @brief Optional application-owned Restore-to-Previous snapshot storage.
+     *
+     * When disposal method 3 is enabled and encountered, this must reference
+     * writable storage distinct from @ref pixels. Its capacity must cover the
+     * largest accepted packed image rectangle in this output pixel format.
+     * A null pointer or insufficient capacity makes that frame return
+     * GIF_STATUS_BUFFER_TOO_SMALL. The library never allocates or releases
+     * this storage.
+     */
+    void *disposal3_snapshot;
+    /** @brief Accessible bytes beginning at @ref disposal3_snapshot. */
+    size_t disposal3_snapshot_capacity_bytes;
 } GifOutputSurface;
 
 /**
@@ -83,7 +96,8 @@ typedef struct GifOutputSurface {
  * converted to milliseconds; zero remains zero and timing policy belongs to
  * the application. The updated rectangle conservatively covers the image
  * rectangle even when transparent pixels remain unchanged and, when disposal
- * method 2 restores the preceding frame, the restored rectangle as well.
+ * method 2 or enabled disposal method 3 restores the preceding frame, the
+ * restored rectangle as well.
  */
 typedef struct GifFrameInfo {
     uint32_t frame_index;    /**< Zero-based decoded frame number. */
@@ -116,9 +130,10 @@ GifStatus gif_decoder_open(const GifDecoderConfig *config,
 /**
  * @brief Bind caller-owned pixel storage and initialize the canvas background.
  *
- * The descriptor is copied, but its pixel storage must remain valid until the
- * decoder is closed. Capacity must cover at least
- * `(canvas_height - 1) * stride_bytes + packed_canvas_row_bytes`.
+ * The descriptor is copied, but its pixel storage and any optional disposal-3
+ * snapshot storage must remain valid until the decoder is closed. Pixel
+ * capacity must cover at least `(canvas_height - 1) * stride_bytes +
+ * packed_canvas_row_bytes`.
  *
  * @param[in,out] decoder Decoder returned by `gif_decoder_open()`.
  * @param[in] surface     Output descriptor to validate and copy.

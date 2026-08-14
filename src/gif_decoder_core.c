@@ -8,6 +8,7 @@
 
 #include "gif_decoder_core.h"
 
+#include "gif_config.h"
 #include "gif_lib.h"
 #include "gif_mem.h"
 
@@ -36,6 +37,13 @@ typedef struct GifCanvasRectangle {
     uint32_t height; /**< Rectangle height in pixels. */
 } GifCanvasRectangle;
 
+/** @brief Deferred disposal action applied immediately before a later image. */
+typedef enum GifPendingDisposal {
+    GIF_PENDING_DISPOSAL_NONE = 0,
+    GIF_PENDING_DISPOSAL_BACKGROUND,
+    GIF_PENDING_DISPOSAL_PREVIOUS
+} GifPendingDisposal;
+
 /** @brief Internal state hidden behind the public opaque decoder handle. */
 struct GifDecoder {
     GifFileType *gif;                  /**< Private giflib decoder instance. */
@@ -44,11 +52,14 @@ struct GifDecoder {
     GifOutputSurface output;           /**< Copied caller output descriptor. */
     GifStatus terminal_status;         /**< Sticky public decode failure. */
     GifFrameControl pending_control;   /**< Control state for the next image. */
-    GifCanvasRectangle pending_background_rect; /**< Prior area to clear. */
+    GifCanvasRectangle pending_disposal_rect; /**< Prior area to restore. */
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    uint8_t *pending_previous_pixels; /**< Caller snapshot for prior method 3. */
+#endif
     uint32_t frame_index;              /**< Next zero-based frame index. */
+    GifPendingDisposal pending_disposal; /**< Deferred action from prior frame. */
     uint8_t output_bound;              /**< Non-zero after output binding. */
     uint8_t stream_ended;              /**< Non-zero after the GIF trailer. */
-    uint8_t pending_background_disposal; /**< Non-zero for prior method 2. */
 };
 
 /**
@@ -123,9 +134,6 @@ static int gif_decoder_read_bridge(GifFileType *gif,
         case GIF_PORTING_EOF:
             decoder->source_terminal = GIF_SOURCE_EOF;
             break;
-        case GIF_PORTING_IO_ERROR:
-            decoder->source_terminal = GIF_SOURCE_IO_ERROR;
-            break;
         default:
             decoder->source_terminal = GIF_SOURCE_IO_ERROR;
             break;
@@ -180,6 +188,22 @@ static inline size_t gif_decoder_pixel_bytes(GifPixelFormat pixel_format) {
 }
 
 /**
+ * @brief Return the address of one visible output pixel.
+ *
+ * This short calculation is shared by background fill, image composition,
+ * and enabled restore-to-previous row copies. It remains inline because all
+ * of those paths execute it in their row-processing loops.
+ */
+static inline uint8_t *gif_decoder_output_pixel(GifDecoder *decoder,
+                                                 uint32_t row,
+                                                 uint32_t column) {
+    return (uint8_t *)decoder->output.pixels +
+           (size_t)row * decoder->output.stride_bytes +
+           (size_t)column *
+               gif_decoder_pixel_bytes(decoder->output.pixel_format);
+}
+
+/**
  * @brief Store one RGB color in the selected packed output layout.
  *
  * This is shared by background restoration and image composition. It is
@@ -225,7 +249,6 @@ static void gif_decoder_fill_background_rectangle(
     GifDecoder *decoder, const GifCanvasRectangle *rectangle) {
     const ColorMapObject *color_map = decoder->gif->SColorMap;
     int background_index = decoder->gif->SBackGroundColor;
-    uint8_t *pixels = (uint8_t *)decoder->output.pixels;
     uint8_t red = 0;
     uint8_t green = 0;
     uint8_t blue = 0;
@@ -240,10 +263,8 @@ static void gif_decoder_fill_background_rectangle(
         blue = color_map->Colors[background_index].Blue;
     }
     for (row = 0; row < rectangle->height; row++) {
-        uint8_t *destination =
-            pixels + (size_t)(rectangle->top + row) *
-                         decoder->output.stride_bytes +
-            (size_t)rectangle->left * pixel_bytes;
+        uint8_t *destination = gif_decoder_output_pixel(
+            decoder, rectangle->top + row, rectangle->left);
 
         for (column = 0; column < rectangle->width; column++) {
             gif_decoder_store_pixel(decoder->output.pixel_format,
@@ -251,6 +272,14 @@ static void gif_decoder_fill_background_rectangle(
             destination += pixel_bytes;
         }
     }
+}
+
+/** @brief Clear bookkeeping retained for a deferred disposal. */
+static void gif_decoder_clear_pending_disposal(GifDecoder *decoder) {
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    decoder->pending_previous_pixels = NULL;
+#endif
+    decoder->pending_disposal = GIF_PENDING_DISPOSAL_NONE;
 }
 
 /** @copydoc gif_decoder_core_open */
@@ -376,6 +405,9 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                                       GifFrameInfo *out_frame) {
     GifRecordType record_type;
     GifPixelType *row_buffer = NULL;
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+    uint8_t *saved_previous_pixels = NULL;
+#endif
     GifStatus status;
 
     if (decoder == NULL || out_frame == NULL) {
@@ -440,19 +472,85 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                 goto fail;
             }
 
+            image_rect.left = (uint32_t)image->Left;
+            image_rect.top = (uint32_t)image->Top;
+            image_rect.width = (uint32_t)image->Width;
+            image_rect.height = (uint32_t)image->Height;
             row_buffer =
                 (GifPixelType *)gif_mem_malloc((size_t)image->Width);
             if (row_buffer == NULL) {
                 status = GIF_STATUS_OUT_OF_MEMORY;
                 goto fail;
             }
-            if (decoder->pending_background_disposal != 0) {
+
+            /* Apply the prior frame's deferred disposal before this image. */
+            if (decoder->pending_disposal == GIF_PENDING_DISPOSAL_BACKGROUND) {
                 gif_decoder_fill_background_rectangle(
-                    decoder, &decoder->pending_background_rect);
-                restored_rect = decoder->pending_background_rect;
-                decoder->pending_background_disposal = 0;
+                    decoder, &decoder->pending_disposal_rect);
+                restored_rect = decoder->pending_disposal_rect;
                 restored_previous = 1;
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+            } else if (decoder->pending_disposal ==
+                           GIF_PENDING_DISPOSAL_PREVIOUS &&
+                       decoder->pending_previous_pixels != NULL) {
+                size_t restored_row_bytes =
+                    (size_t)decoder->pending_disposal_rect.width *
+                    pixel_bytes;
+                uint32_t restored_row;
+
+                for (restored_row = 0;
+                     restored_row < decoder->pending_disposal_rect.height;
+                     restored_row++) {
+                    memcpy(gif_decoder_output_pixel(
+                               decoder,
+                               decoder->pending_disposal_rect.top +
+                                   restored_row,
+                               decoder->pending_disposal_rect.left),
+                           decoder->pending_previous_pixels +
+                               (size_t)restored_row * restored_row_bytes,
+                           restored_row_bytes);
+                }
+                restored_rect = decoder->pending_disposal_rect;
+                restored_previous = 1;
+#endif
             }
+            gif_decoder_clear_pending_disposal(decoder);
+
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+            if (decoder->pending_control.disposal_mode == DISPOSE_PREVIOUS) {
+                size_t saved_row_bytes;
+                size_t saved_total_bytes;
+                uint32_t saved_row;
+
+                if ((size_t)image_rect.width > SIZE_MAX / pixel_bytes) {
+                    status = GIF_STATUS_OUT_OF_MEMORY;
+                    goto fail;
+                }
+                saved_row_bytes = (size_t)image_rect.width * pixel_bytes;
+                if ((size_t)image_rect.height > SIZE_MAX / saved_row_bytes) {
+                    status = GIF_STATUS_OUT_OF_MEMORY;
+                    goto fail;
+                }
+                saved_total_bytes = saved_row_bytes * (size_t)image_rect.height;
+                if (decoder->output.disposal3_snapshot == NULL ||
+                    decoder->output.disposal3_snapshot_capacity_bytes <
+                        saved_total_bytes) {
+                    status = GIF_STATUS_BUFFER_TOO_SMALL;
+                    goto fail;
+                }
+                saved_previous_pixels =
+                    (uint8_t *)decoder->output.disposal3_snapshot;
+                for (saved_row = 0; saved_row < image_rect.height;
+                     saved_row++) {
+                    memcpy(saved_previous_pixels +
+                               (size_t)saved_row * saved_row_bytes,
+                           gif_decoder_output_pixel(
+                               decoder, image_rect.top + saved_row,
+                               image_rect.left),
+                           saved_row_bytes);
+                }
+            }
+#endif
 
             for (row = 0; row < image->Height; row++) {
                 uint8_t *destination;
@@ -469,10 +567,9 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                 if (image->Interlace) {
                     destination_row = interlace_row;
                 }
-                destination = (uint8_t *)decoder->output.pixels +
-                              (size_t)(image->Top + destination_row) *
-                                  decoder->output.stride_bytes +
-                               (size_t)image->Left * pixel_bytes;
+                destination = gif_decoder_output_pixel(
+                    decoder, (uint32_t)(image->Top + destination_row),
+                    (uint32_t)image->Left);
                 for (column = 0; column < image->Width; column++) {
                     int palette_index = row_buffer[column];
                     const GifColorType *color;
@@ -509,21 +606,11 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
             gif_mem_free(row_buffer);
             row_buffer = NULL;
 
-            image_rect.left = (uint32_t)image->Left;
-            image_rect.top = (uint32_t)image->Top;
-            image_rect.width = (uint32_t)image->Width;
-            image_rect.height = (uint32_t)image->Height;
             if (restored_previous != 0) {
-                uint32_t left = image_rect.left < restored_rect.left
-                                    ? image_rect.left
-                                    : restored_rect.left;
-                uint32_t top = image_rect.top < restored_rect.top
-                                   ? image_rect.top
-                                   : restored_rect.top;
                 uint32_t image_right = image_rect.left + image_rect.width;
+                uint32_t image_bottom = image_rect.top + image_rect.height;
                 uint32_t restored_right =
                     restored_rect.left + restored_rect.width;
-                uint32_t image_bottom = image_rect.top + image_rect.height;
                 uint32_t restored_bottom =
                     restored_rect.top + restored_rect.height;
                 uint32_t right = image_right > restored_right ? image_right
@@ -532,10 +619,14 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                                       ? image_bottom
                                       : restored_bottom;
 
-                updated_rect.left = left;
-                updated_rect.top = top;
-                updated_rect.width = right - left;
-                updated_rect.height = bottom - top;
+                updated_rect.left = image_rect.left < restored_rect.left
+                                        ? image_rect.left
+                                        : restored_rect.left;
+                updated_rect.top = image_rect.top < restored_rect.top
+                                       ? image_rect.top
+                                       : restored_rect.top;
+                updated_rect.width = right - updated_rect.left;
+                updated_rect.height = bottom - updated_rect.top;
             } else {
                 updated_rect = image_rect;
             }
@@ -550,10 +641,18 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
             out_frame->updated_top = updated_rect.top;
             out_frame->updated_width = updated_rect.width;
             out_frame->updated_height = updated_rect.height;
-            decoder->pending_background_disposal =
-                decoder->pending_control.disposal_mode == DISPOSE_BACKGROUND;
-            if (decoder->pending_background_disposal != 0) {
-                decoder->pending_background_rect = image_rect;
+            decoder->pending_disposal = GIF_PENDING_DISPOSAL_NONE;
+            if (decoder->pending_control.disposal_mode == DISPOSE_BACKGROUND) {
+                decoder->pending_disposal = GIF_PENDING_DISPOSAL_BACKGROUND;
+                decoder->pending_disposal_rect = image_rect;
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+            } else if (decoder->pending_control.disposal_mode ==
+                       DISPOSE_PREVIOUS) {
+                decoder->pending_disposal = GIF_PENDING_DISPOSAL_PREVIOUS;
+                decoder->pending_disposal_rect = image_rect;
+                decoder->pending_previous_pixels = saved_previous_pixels;
+                saved_previous_pixels = NULL;
+#endif
             }
             decoder->frame_index++;
             gif_decoder_reset_frame_control(&decoder->pending_control);
@@ -580,7 +679,11 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
                     goto fail;
                 }
                 if (control.UserInputFlag ||
+#if GIF_ENABLE_DISPOSAL_METHOD_3
+                    control.DisposalMode > DISPOSE_PREVIOUS) {
+#else
                     control.DisposalMode > DISPOSE_BACKGROUND) {
+#endif
                     status = GIF_STATUS_UNSUPPORTED_FEATURE;
                     goto fail;
                 }
@@ -619,6 +722,7 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
         }
         case TERMINATE_RECORD_TYPE:
             decoder->stream_ended = 1;
+            gif_decoder_clear_pending_disposal(decoder);
             return GIF_STATUS_END_OF_STREAM;
         default:
             status = GIF_STATUS_INVALID_FORMAT;
@@ -628,6 +732,7 @@ GifStatus gif_decoder_core_next_frame(GifDecoder *decoder,
 
 fail:
     gif_mem_free(row_buffer);
+    gif_decoder_clear_pending_disposal(decoder);
     decoder->terminal_status = status;
     return status;
 }
@@ -638,6 +743,7 @@ void gif_decoder_core_close(GifDecoder *decoder) {
         return;
     }
 
+    gif_decoder_clear_pending_disposal(decoder);
     if (decoder->gif != NULL) {
         (void)DGifCloseFile(decoder->gif, NULL);
     }

@@ -68,4 +68,21 @@
 #error "GIF_MEM_POOL_ALIGNMENT must be a power of two and at least 8"
 #endif
 
+/**
+ * @brief Enable GIF disposal method 3 (Restore to Previous) support.
+ *
+ * The default preserves the smallest decoder and the existing policy: a GIF
+ * requesting disposal method 3 returns GIF_STATUS_UNSUPPORTED_FEATURE. Set to
+ * 1 to include the rectangle snapshot path required by the feature. Enabled
+ * BUILTIN builds must budget for the largest pending image-rectangle snapshot;
+ * the caller-owned framebuffer remains separate.
+ */
+#ifndef GIF_ENABLE_DISPOSAL_METHOD_3
+#define GIF_ENABLE_DISPOSAL_METHOD_3 0
+#endif
+
+#if GIF_ENABLE_DISPOSAL_METHOD_3 != 0 && GIF_ENABLE_DISPOSAL_METHOD_3 != 1
+#error "GIF_ENABLE_DISPOSAL_METHOD_3 must be 0 or 1"
+#endif
+
 #endif /* GIF_CONFIG_H */

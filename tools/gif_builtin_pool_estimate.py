@@ -130,8 +130,13 @@ def main() -> None:
                         help="maximum entries in each retained palette (default: 256)")
     parser.add_argument("--port-handle-bytes", type=non_negative, default=0,
                         help="payload bytes in one gif_porting.c handle (default: 0)")
-    parser.add_argument("--decoder-fixed-bytes", type=positive, default=25024,
-                        help="per-decoder fixed payload, excluding palettes and row; verified ARM32 default")
+    parser.add_argument("--disposal3-enabled", action="store_true",
+                        help=("select the verified ARM32 fixed-decoder size for "
+                              "a build with disposal method 3 enabled; its caller "
+                              "snapshot remains outside this estimate"))
+    parser.add_argument("--decoder-fixed-bytes", type=positive, default=None,
+                        help=("per-decoder fixed payload, excluding palettes and "
+                              "row; defaults to the selected verified ARM32 build"))
     parser.add_argument("--colour-map-object-bytes", type=positive, default=12,
                         help="sizeof(ColorMapObject) for the target ABI; verified ARM32 default")
     parser.add_argument("--colour-entry-bytes", type=positive, default=3,
@@ -150,6 +155,10 @@ def main() -> None:
     arguments = parser.parse_args()
     if arguments.palette_entries > 256:
         parser.error("GIF colour tables contain at most 256 entries")
+    if arguments.decoder_fixed_bytes is None:
+        arguments.decoder_fixed_bytes = (
+            25048 if arguments.disposal3_enabled else 25044
+        )
     if arguments.global_palettes is None:
         arguments.global_palettes = arguments.live_decoders
     if arguments.local_palettes is None:

@@ -22,6 +22,10 @@ P_hardened_tested(N, W) = W + 128 KiB + 64 KiB × N
 
 `N` is the maximum number of simultaneously live decoders, `W` is the maximum accepted GIF image width in bytes of palette-index row storage (one byte per pixel in the current decoder), and `H_port(N)` is the total payload of all live dynamic handles created by the target's `gif_porting.c`. The caller-owned output framebuffer is separate.
 
+### Disposal method 3 scope
+
+The completed workload matrix exercised disposal methods 0, 1, and 2. Restore to Previous (disposal method 3) is now an optional compile-time feature, but its packed pre-composition rectangle is application-owned `GifOutputSurface` storage and is not part of any measured or calculated BUILTIN pool profile. A product that enables it must separately reserve `S_previous(N) = N × R`, where `R` is the largest accepted image-rectangle area times the output pixel size; no output-surface stride padding is retained. The calculator intentionally excludes this application storage. This remains a modelled product bound rather than an experimental claim that method 3 received the same endurance coverage.
+
 ## Scope and memory boundary
 
 The BUILTIN backend owns a single fixed TLSF pool. It includes every dynamic allocation made through `gif_mem_*`, including decoder state, giflib state, palette objects, the current image row buffer, and any dynamic port handle allocated with `gif_porting_mem_alloc()`.

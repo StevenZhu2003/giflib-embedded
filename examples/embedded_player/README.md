@@ -14,6 +14,8 @@ assets/device_boot.gif
 
 The animation and its C byte representation were created for this project and are not copied from external media. No platform SDK, filesystem, display library, or other third-party component is bundled or required.
 
+The example does not impose a disposal-method configuration. It links the selected library build: the default remains method-3-trimmed, while a build configured with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` can also play a resource that uses Restore to Previous. `main.c` reserves a separate application-owned static snapshot sized for its maximum canvas, so the enabled build can accept a full-canvas method-3 rectangle without consuming the decoder allocator pool. The framebuffer remains application-owned in either configuration.
+
 ## Animation asset origin and license
 
 `assets/device_boot.gif` was created locally and specifically for this repository. It was not downloaded from the Internet and does not contain or adapt an external photograph, illustration, icon, logo, font, or other media asset. Its frames were drawn programmatically from project-original geometric shapes and a project-selected color palette, then encoded as a 128 x 64 GIF.

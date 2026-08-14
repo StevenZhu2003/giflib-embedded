@@ -10,10 +10,10 @@ The ordinary repository regression remains independent of this guide's local GIF
 | --- | --- | --- |
 | Curated corpus | Ensure public behavior is tested against independently generated GIFs rather than only small project fixtures. | All 39 pinned files have provenance, a digest, a classification, and a frozen structural outcome. |
 | Public lifecycle | Check the same open, bind, decode, and close calls an application uses. | The opt-in harness uses only the public decoder API and a forward-only test port. |
-| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal-2 behavior. | Reviewed RGB888 hashes cover selected high-value composition cases. |
+| Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite checks optional disposal method 3 in RGB888 and RGB565, including initial, consecutive, 2-to-3, and 3-to-2 composition transitions with caller-owned snapshots. |
 | Read and cleanup | Confirm short reads, final-byte EOF, source failures, and repeated lifecycles do not violate the port contract. | The selected sparse matrix passes without an unnecessary Cartesian-product expansion. |
 | Allocator scope | Confirm decoder behavior is not coupled to one host allocator implementation. | The full corpus uses PRIVATE accounting; selected cases also pass through BUILTIN, LIBC, and the LVGL public-API mock. |
-| Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The complete 16-test matrix passed under both supported host configurations. |
+| Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The completed configured host matrices passed under both supported host configurations. |
 | Fuzzing | Explore variations around the curated corpus and measure whether the current input model reaches new code paths. | Two four-worker campaigns ran for about 4 hours 56 minutes and at least 3,877,840 executions; code coverage reached a stable plateau. |
 
 The results are evidence for the stated host configuration, corpus, and source revision. They are not a proof about every GIF, platform port, allocator configuration, or future revision.
@@ -46,12 +46,12 @@ The frozen manifest is implemented in tests/test_compatibility.c.
 
 | Classification | Count | Expected result |
 | --- | ---: | --- |
-| Supported-valid | 30 | Open, bind, decode, and finish with GIF_STATUS_END_OF_STREAM. |
-| Deliberately unsupported | 2 | GIF_STATUS_UNSUPPORTED_FEATURE. |
+| Supported-valid | 30 by default; 31 with method 3 enabled | Open, bind, decode, and finish with GIF_STATUS_END_OF_STREAM. |
+| Deliberately unsupported | 2 by default; 1 with method 3 enabled | GIF_STATUS_UNSUPPORTED_FEATURE. |
 | Malformed or truncated | 6 | One documented non-success public status at the documented lifecycle boundary. |
 | Forward-version compatibility | 1 | Decode one frame and finish with GIF_STATUS_END_OF_STREAM. |
 
-The two deliberately unsupported files are dispose_previous.gif (disposal method 3) and plain_text_ext.gif (Plain Text extension).
+Plain Text remains deliberately unsupported. `dispose_previous.gif` is deliberately unsupported in the default build and becomes supported-valid when `GIF_ENABLE_DISPOSAL_METHOD_3=1`.
 
 The six malformed/truncated files are bad_lzw_code.gif, empty.gif, no_trailer.gif, truncated_header.gif, truncated_lzw.gif, and zero_dimensions.gif.
 
@@ -72,7 +72,7 @@ The six malformed/truncated files are bad_lzw_code.gif, empty.gif, no_trailer.gi
 | Corrupt LZW payload | Decode | GIF_STATUS_INVALID_FORMAT |
 | Truncated image data | Decode | GIF_STATUS_UNEXPECTED_EOF |
 | Missing trailer after a complete image | Next frame | GIF_STATUS_UNEXPECTED_EOF |
-| Disposal method 3 | Decode before frame 0 | GIF_STATUS_UNSUPPORTED_FEATURE |
+| Disposal method 3 | Decode before frame 0 | GIF_STATUS_UNSUPPORTED_FEATURE when disabled; decode and GIF_STATUS_END_OF_STREAM when enabled |
 | Plain Text extension | Decode after frame 0 | GIF_STATUS_UNSUPPORTED_FEATURE |
 
 Each result is a single expected outcome, rather than a choice among broadly similar statuses. The harness also verifies that a successful source open is paired with exactly one close across normal completion and all frozen non-success paths.
@@ -95,6 +95,7 @@ The harness verifies public statuses, frame count, canvas dimensions, relevant G
 | Palettes | global_ct_only.gif, local_ct.gif, mixed_ct.gif | Global/local palette selection and colour output. |
 | Interlace and geometry | static_interlaced.gif, small_frame_big_canvas.gif, overlapping_frames.gif | Pass order, background, offsets, updated rectangle, composited output. |
 | Transparency and disposal 0/1/2 | transparent_bg.gif, transparent_frame.gif, dispose_background.gif | GCE state, transparent pixels, restore-to-background, continuous composition. |
+| Optional disposal 3 | dispose_previous.gif plus ordinary hand-authored fixtures | Structural lifecycle result in the enabled corpus configuration; RGB888/RGB565 restore-to-previous composition, consecutive frames, caller-owned snapshot capacity, and cleanup in ordinary regression. |
 | Animation/timing | anim_*.gif, delay_*.gif, variable_delay.gif, loop_*.gif | Frame count, delay_ms, no decoder-owned waiting or looping. |
 | Version/extensions | gif87a.gif, bad_magic.gif, comment_ext.gif | Version policy and non-rendering extension handling. |
 
@@ -106,11 +107,11 @@ The test matrix intentionally avoids an allocator × read-schedule × injection-
 
 1. Every corpus case receives one normal in-memory lifecycle.
 2. One representative per supported family and every malformed/unsupported case receive one-byte reads.
-3. Selected static, animated, interlaced, and disposal-2 cases also receive a practical chunk-size run.
+3. Selected static, animated, interlaced, and disposal cases also receive a practical chunk-size run.
 4. Source I/O injection uses selected representatives and four named parser-phase positions.
 5. Supported, malformed, and deliberately unsupported paths are repeated to check handle cleanup and allocation balance.
 
-The primary full-corpus run uses the PRIVATE test allocator. Selected supported and malformed cases also pass through BUILTIN, LIBC, and the LVGL mock backend. BUILTIN uses the production fixed-pool path; LVGL coverage is restricted to the public allocator bridge mock.
+The primary full-corpus run uses the PRIVATE test allocator. Selected supported and malformed cases also pass through BUILTIN, LIBC, and the LVGL mock backend. BUILTIN uses the production fixed-pool path; LVGL coverage is restricted to the public allocator bridge mock. Configure `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` to validate the enabled classification; the normal default continues to freeze the deliberately unsupported result.
 
 ## 4. Host instrumentation
 
@@ -121,7 +122,7 @@ GIFLIB_ENABLE_HOST_SANITIZERS=ON creates a separate host-only instrumented confi
 | MSVC or clang-cl | AddressSanitizer |
 | GCC or native Clang | AddressSanitizer and UndefinedBehaviorSanitizer |
 
-The completed validation matrix passed under MSVC 19.51 ASan and GCC 13.3 ASan+UBSan in WSL Ubuntu 24.04. These runs cover the normal host regression, embedded-player example, and opt-in compatibility harness. They do not replace target validation.
+The completed configured validation matrices passed under MSVC 19.51 ASan and GCC 13.3 ASan+UBSan in WSL Ubuntu 24.04. These runs cover the normal host regression, embedded-player example, and opt-in compatibility harness. They do not replace target validation.
 
 ## 5. Host fuzzer
 
