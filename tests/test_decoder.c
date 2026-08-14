@@ -333,28 +333,20 @@ static GifStatus bind_output(GifDecoder *decoder,
     return gif_decoder_bind_output(decoder, &surface);
 }
 
-/** @brief Convert one 24-bit RGB color to the documented RGB565 word. */
-static uint16_t pack_rgb565(uint8_t red, uint8_t green, uint8_t blue) {
-    return (uint16_t)(((uint16_t)(red >> 3U) << 11U) |
-                      ((uint16_t)(green >> 2U) << 5U) |
-                      (uint16_t)(blue >> 3U));
-}
-
-/** @brief Read one potentially unaligned native-endian RGB565 word. */
-static uint16_t load_rgb565(const uint8_t *pixels, size_t offset) {
-    uint16_t packed;
-
-    memcpy(&packed, pixels + offset, sizeof(packed));
-    return packed;
-}
-
 /** @brief Compare one RGB565 output pixel without assuming host byte order. */
 static void check_rgb565_pixel(const uint8_t *pixels,
                                size_t offset,
                                uint8_t red,
                                uint8_t green,
                                uint8_t blue) {
-    CHECK(load_rgb565(pixels, offset) == pack_rgb565(red, green, blue));
+    uint16_t actual;
+    uint16_t expected =
+        (uint16_t)(((uint16_t)(red >> 3U) << 11U) |
+                   ((uint16_t)(green >> 2U) << 5U) |
+                   (uint16_t)(blue >> 3U));
+
+    memcpy(&actual, pixels + offset, sizeof(actual));
+    CHECK(actual == expected);
 }
 
 /** @brief Verify open-time metadata obtained from a memory-backed source. */

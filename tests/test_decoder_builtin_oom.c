@@ -33,21 +33,16 @@ static const uint8_t gif_header_with_palette[] = {
     ';'
 };
 
-/** @brief Initialize the shared memory source exactly as the normal tests do. */
-static void initialize_source(MemorySource *source) {
-    memset(source, 0, sizeof(*source));
-    source->data = gif_header_with_palette;
-    source->size = sizeof(gif_header_with_palette);
-    source->max_chunk = source->size;
-}
-
 int main(void) {
     MemorySource source;
     GifDecoderConfig config;
     GifDecoder *decoder = NULL;
     GifStreamInfo stream;
 
-    initialize_source(&source);
+    memset(&source, 0, sizeof(source));
+    source.data = gif_header_with_palette;
+    source.size = sizeof(gif_header_with_palette);
+    source.max_chunk = source.size;
     config.source_identifier = &source;
     CHECK(gif_decoder_open(&config, &decoder, &stream) ==
           GIF_STATUS_OUT_OF_MEMORY);
