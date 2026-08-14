@@ -17,7 +17,7 @@ The per-file raw observation record is `testdata/compatibility_corpus/OBSERVATIO
 | Supported pass | 27 `valid/` files excluding disposal 3; `comment_ext.gif`; `gif87a.gif`; `large_palette_small_image.gif` | 30 | Open, bind, decode, and finish with `GIF_STATUS_END_OF_STREAM`. |
 | Deliberately unsupported | `dispose_previous.gif`; `plain_text_ext.gif` | 2 | `GIF_STATUS_UNSUPPORTED_FEATURE`; no decoder change is indicated. |
 | Malformed handling | `bad_lzw_code.gif`; `empty.gif`; `no_trailer.gif`; `truncated_header.gif`; `truncated_lzw.gif`; `zero_dimensions.gif` | 6 | A stable non-success public status was returned at open, bind, or next-frame. |
-| Unexpected acceptance | `bad_magic.gif` | 1 | Decodes one frame and ends with `GIF_STATUS_END_OF_STREAM`, despite the upstream invalid classification. |
+| Forward-version compatibility | `bad_magic.gif` | 1 | Decodes one frame and ends with `GIF_STATUS_END_OF_STREAM` under the adopted capability-oriented best-effort policy. |
 | Remaining specification edge | None in this 39-file pass | 0 | Missing trailer and Plain Text have a defined current outcome below. |
 
 All successful opens performed one observed port open and one observed port close. No case hung or crashed in this normal-read pass. This result does not yet establish allocation balance, TLSF integrity, short-read behaviour, injected I/O cleanup, or rendering-pixel correctness.
@@ -49,22 +49,16 @@ This is the single later regression expectation. It follows the public status co
 
 The zero-dimension result deserves a runner note: the first exploratory runner had refused to call `gif_decoder_bind_output()` for a zero-size canvas and therefore produced its own buffer-size result. The runner was corrected to supply a non-NULL minimal surface; the manifest above is the corrected full 39-file re-run and records the decoder's `GIF_STATUS_INVALID_FORMAT` instead.
 
-## Header/version policy review before assertions
+## Adopted header/version policy
 
 `invalid/bad_magic.gif` has the six-byte header `GIF90a`. The current giflib-derived opening code verifies only the fixed three-byte `GIF` signature, then parses the stream. It therefore accepts this input, which contains otherwise decodable baseline image data. The source's private `gif89` flag is false for this header, but that flag is used only by the private version-reporting helper and does not change the public decoder's parsing path.
 
 The upstream `invalid/` classification must not decide the project policy by itself. The GIF89a specification defines the version as a declaration of the minimum decoder capabilities, gives an ordering that includes potential later numeric revisions, and recommends that a decoder attempt a stream it cannot fully process to the best of its ability. `GIF90a` is consequently not a malformed signature merely because it differs from the two revisions known in the 1990 specification.
 
-Three coherent policies are available for review:
+The project adopts capability-oriented best effort. A source must carry the fixed `GIF` signature; a later declared version does not fail solely because it is not `GIF87a` or `GIF89a`. The decoder attempts to process the stream using its actual blocks and semantics. It returns the existing format or unsupported-feature status only when it encounters the corresponding unsupported or malformed content.
 
-| Policy | `GIF90a` outcome | Consequence |
-| --- | --- | --- |
-| Retain capability-oriented best effort (recommended) | Decode it when its actual blocks use supported semantics; otherwise return the existing format/unsupported error at the point encountered. | Preserves giflib behaviour and the specification's decoder recommendation. The later regression treats this file as a version-forward-compatibility success case, not malformed input. |
-| Restrict to known revisions | Reject every header except `GIF87a` and `GIF89a` at open with `GIF_STATUS_INVALID_FORMAT`. | Simple and deterministic, but is stricter than the specification's best-effort recommendation and rejects harmless forward-version files. |
-| Treat an unknown declared version as unsupported | Reject `GIF90a` at open with `GIF_STATUS_UNSUPPORTED_FEATURE`. | Makes the declared capability boundary explicit, but gives up best-effort decoding even where actual content fits the implemented feature set. It also requires a precise definition of valid future-version syntax. |
-
-No change was made in this phase. Before freezing an assertion, the project must choose one policy and document it in the public supported-format boundary.
+Accordingly, `bad_magic.gif` is frozen as a forward-version compatibility case with one decoded frame followed by `GIF_STATUS_END_OF_STREAM`. No decoder source change was necessary: the retained giflib opening behaviour already implements this policy.
 
 ## Deliberately deferred checks
 
-The next phase may add only the sparse matrix defined in [COMPATIBILITY_TEST_PLAN.md](COMPATIBILITY_TEST_PLAN.md): representative short reads and I/O failures, selected backend smoke coverage, repeated lifecycle and allocation-balance checks, then independently reviewed composition oracles. It must not expand into a full allocator × read schedule × injection offset cross product.
+The opt-in harness now implements the bounded normal-read baseline, selected one-byte and seven-byte short reads, selected final-byte EOF reporting, repeated lifecycle/allocation-balance checks, four named I/O-fault positions, independently reviewed RGB888 composition hashes, and a selected BUILTIN/LIBC/LVGL smoke set. It must not expand into a full allocator × read schedule × injection offset cross product. Sanitizer/fuzzing and a second corpus remain deferred.

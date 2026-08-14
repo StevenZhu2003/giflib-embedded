@@ -33,7 +33,8 @@ The initial sweep will classify every locally acquired file into one of these ca
 | Category | Expected use |
 | --- | --- |
 | Supported-valid | Must open and decode through normal EOS with the documented output semantics. |
-| Supported-malformed | Must fail with a stable public error and must not hang, leak, or corrupt allocator state. |
+| Forward-version compatibility | Declares a later GIF version but uses only semantics supported by this decoder; must decode through normal EOS under the capability-oriented best-effort header policy. |
+| Malformed | Must fail with a stable public error and must not hang, leak, or corrupt allocator state. |
 | Deliberately unsupported | Must return `GIF_STATUS_UNSUPPORTED_FEATURE`; this is not a decoder defect. |
 | Specification edge | Investigate and document the observed result before assigning a stable expectation. |
 

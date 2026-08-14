@@ -145,6 +145,10 @@ install(FILES
 
 option(GIFLIB_BUILD_TESTS "Build host-side regression tests" ON)
 option(GIFLIB_BUILD_EXAMPLES "Build hosted usage examples" OFF)
+option(GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS
+       "Build the opt-in host test against a local external GIF corpus" OFF)
+set(GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR "" CACHE PATH
+    "Path to the local gif-conformance corpus (opt-in compatibility test only)")
 
 if(GIFLIB_BUILD_TESTS)
     enable_testing()
@@ -409,6 +413,79 @@ if(GIFLIB_BUILD_TESTS)
     )
     giflib_apply_common_options(gif_decoder_builtin_oom_tests)
     add_test(NAME gif_decoder_builtin_oom COMMAND gif_decoder_builtin_oom_tests)
+endif()
+
+# This target is intentionally independent of GIFLIB_BUILD_TESTS: it is an
+# opt-in host investigation of Git-ignored external files, not a normal source
+# regression or a dependency of consumers. The decoder is built with the same
+# PRIVATE test allocator used by facade tests so every case can check cleanup.
+if(GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS)
+    if(GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR STREQUAL "" OR
+       NOT IS_DIRECTORY "${GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR}")
+        message(FATAL_ERROR
+            "GIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS requires "
+            "GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR to name a local "
+            "gif-conformance directory")
+    endif()
+
+    function(giflib_add_local_compatibility_target target backend smoke)
+        set(compatibility_sources
+            tests/test_compatibility.c
+            tests/test_porting.c
+            src/gif_decoder.c
+            ${GIFLIB_DECODER_CORE_SOURCES}
+        )
+        if(backend STREQUAL "PRIVATE")
+            list(APPEND compatibility_sources tests/test_allocator.c)
+        elseif(backend STREQUAL "LVGL")
+            list(APPEND compatibility_sources tests/lvgl_mock.c)
+        endif()
+
+        add_executable(${target} ${compatibility_sources})
+        giflib_add_memory_backend(${target} ${backend})
+        target_include_directories(${target} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/memory"
+            "${CMAKE_CURRENT_SOURCE_DIR}/port"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+            "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tlsf"
+            "${CMAKE_CURRENT_SOURCE_DIR}/vendor/giflib"
+        )
+        if(backend STREQUAL "PRIVATE")
+            target_compile_definitions(${target} PRIVATE
+                GIFLIB_TEST_ALLOC_TRACKING=1
+            )
+        elseif(backend STREQUAL "LVGL")
+            target_compile_definitions(${target} PRIVATE
+                LVGL_VERSION_MAJOR=9
+                LVGL_VERSION_MINOR=0
+            )
+            target_include_directories(${target} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/lvgl_mock"
+            )
+        endif()
+        giflib_apply_common_options(${target})
+
+        if(smoke)
+            add_test(NAME ${target} COMMAND ${target}
+                     "${GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR}"
+                     --backend-smoke)
+        else()
+            add_test(NAME ${target} COMMAND ${target}
+                     "${GIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR}")
+        endif()
+    endfunction()
+
+    enable_testing()
+    giflib_add_local_compatibility_target(
+        giflib_local_compatibility_tests PRIVATE FALSE)
+    giflib_add_local_compatibility_target(
+        giflib_local_compatibility_builtin_tests BUILTIN TRUE)
+    giflib_add_local_compatibility_target(
+        giflib_local_compatibility_libc_tests LIBC TRUE)
+    giflib_add_local_compatibility_target(
+        giflib_local_compatibility_lvgl_tests LVGL TRUE)
 endif()
 
 if(GIFLIB_BUILD_EXAMPLES)
