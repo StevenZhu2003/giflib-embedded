@@ -9,7 +9,7 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 ### Stage 8 — Compatibility corpus and host-side malformed-input hardening
 
 - Add a small, curated GIF corpus only where each asset has clear provenance and a stable expected result; cover valid composition cases and malformed/truncated inputs not represented by the current synthetic fixtures.
-- Add host-only fuzzing and sanitizer coverage when the corpus and build support are ready. Keep it outside target builds and do not claim real-hardware sanitizer validation.
+- Add host-only fuzzing. Keep it outside target builds and do not claim real-hardware sanitizer validation.
 
 ## MID-HIGH — planned after the immediate work
 

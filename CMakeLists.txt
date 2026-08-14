@@ -5,6 +5,84 @@ cmake_minimum_required(VERSION 3.16)
 
 project(giflib_embedded VERSION 0.1.0 LANGUAGES C)
 
+option(GIFLIB_ENABLE_HOST_SANITIZERS
+       "Enable compiler-supported host sanitizers" OFF)
+
+if(GIFLIB_ENABLE_HOST_SANITIZERS)
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR
+            "GIFLIB_ENABLE_HOST_SANITIZERS is host-only and cannot be used "
+            "for a cross-compiled target build")
+    endif()
+
+    # MSVC and clang-cl use the MSVC-form ASan option.  MSVC does not offer
+    # UBSan, whereas GCC and native Clang provide the ASan+UBSan pair.
+    if(MSVC)
+        set(GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS
+            /fsanitize=address
+            /Zi
+        )
+        set(GIFLIB_HOST_SANITIZER_LINK_OPTIONS
+            /fsanitize=address
+        )
+        set(GIFLIB_HOST_SANITIZER_DESCRIPTION "AddressSanitizer")
+
+        get_filename_component(GIFLIB_HOST_SANITIZER_RUNTIME_DIR
+            "${CMAKE_C_COMPILER}" DIRECTORY)
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(GIFLIB_HOST_SANITIZER_RUNTIME
+                "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}/clang_rt.asan_dynamic-x86_64.dll")
+        else()
+            set(GIFLIB_HOST_SANITIZER_RUNTIME
+                "${GIFLIB_HOST_SANITIZER_RUNTIME_DIR}/clang_rt.asan_dynamic-i386.dll")
+        endif()
+        if(NOT EXISTS "${GIFLIB_HOST_SANITIZER_RUNTIME}")
+            message(FATAL_ERROR
+                "GIFLIB_ENABLE_HOST_SANITIZERS could not find the MSVC "
+                "AddressSanitizer runtime beside ${CMAKE_C_COMPILER}")
+        endif()
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        set(GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+        )
+        set(GIFLIB_HOST_SANITIZER_LINK_OPTIONS
+            -fsanitize=address,undefined
+        )
+        set(GIFLIB_HOST_SANITIZER_DESCRIPTION
+            "AddressSanitizer and UndefinedBehaviorSanitizer")
+    else()
+        message(FATAL_ERROR
+            "GIFLIB_ENABLE_HOST_SANITIZERS requires MSVC, clang-cl, GCC, "
+            "or Clang with supported sanitizer runtimes")
+    endif()
+
+    # Accepting a sanitizer flag is insufficient: some host toolchains omit
+    # its runtime libraries. Probe a complete link so an unsupported
+    # toolchain fails at configuration time, before every test target builds.
+    include(CheckCSourceCompiles)
+    set(giflib_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+    set(giflib_saved_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
+    string(JOIN " " giflib_host_sanitizer_flags
+        ${GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS})
+    set(CMAKE_REQUIRED_FLAGS
+        "${CMAKE_REQUIRED_FLAGS} ${giflib_host_sanitizer_flags}")
+    list(APPEND CMAKE_REQUIRED_LINK_OPTIONS
+        ${GIFLIB_HOST_SANITIZER_LINK_OPTIONS})
+    check_c_source_compiles(
+        "int main(void) { return 0; }"
+        GIFLIB_HOST_SANITIZER_RUNTIME_AVAILABLE)
+    set(CMAKE_REQUIRED_FLAGS "${giflib_saved_required_flags}")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "${giflib_saved_required_link_options}")
+
+    if(NOT GIFLIB_HOST_SANITIZER_RUNTIME_AVAILABLE)
+        message(FATAL_ERROR
+            "GIFLIB_ENABLE_HOST_SANITIZERS requires a linkable "
+            "${GIFLIB_HOST_SANITIZER_DESCRIPTION} runtime from the selected "
+            "host compiler")
+    endif()
+endif()
+
 set(GIF_MEM_BACKEND "BUILTIN" CACHE STRING
     "Memory backend: BUILTIN, PRIVATE, LIBC, or LVGL")
 set_property(CACHE GIF_MEM_BACKEND PROPERTY STRINGS BUILTIN PRIVATE LIBC LVGL)
@@ -66,6 +144,27 @@ function(giflib_apply_common_options target)
             -Wextra
             -Wpedantic
         )
+    endif()
+
+    if(GIFLIB_ENABLE_HOST_SANITIZERS)
+        target_compile_options(${target} PRIVATE
+            ${GIFLIB_HOST_SANITIZER_COMPILE_OPTIONS})
+        get_target_property(giflib_target_type ${target} TYPE)
+        if(giflib_target_type STREQUAL "EXECUTABLE" OR
+           giflib_target_type STREQUAL "SHARED_LIBRARY" OR
+           giflib_target_type STREQUAL "MODULE_LIBRARY")
+            target_link_options(${target} PRIVATE
+                ${GIFLIB_HOST_SANITIZER_LINK_OPTIONS})
+            if(MSVC)
+                # Keep the MSVC ASan runtime beside local host-test binaries.
+                # This command is unreachable in ordinary and target builds.
+                add_custom_command(TARGET ${target} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${GIFLIB_HOST_SANITIZER_RUNTIME}"
+                        "$<TARGET_FILE_DIR:${target}>"
+                    VERBATIM)
+            endif()
+        endif()
     endif()
 endfunction()
 

@@ -100,14 +100,15 @@ The first reviewed exact-pixel subset uses independent Pillow 12.3.0 RGB convers
 
 ## 7. Sanitizer and fuzzing follow-up
 
-After the corpus harness has stable expected outcomes, add host-only instrumentation in a separate build configuration:
+The project provides the opt-in `GIFLIB_ENABLE_HOST_SANITIZERS` CMake option for a separate host-only instrumentation build. It applies the sanitizer set supported by the selected compiler to every library, test, and example target: MSVC or clang-cl uses AddressSanitizer, while GCC or native Clang uses AddressSanitizer and UndefinedBehaviorSanitizer. It rejects cross-compilation and fails during configuration unless the selected toolchain can link the required runtime. For an MSVC build, the AddressSanitizer runtime is copied next to each local test and example executable.
 
-- AddressSanitizer and UndefinedBehaviorSanitizer where the selected host compiler supports them;
+Use that configuration to run:
+
 - a bounded timeout for every malformed-input case;
-- a fuzz entry point that accepts arbitrary bytes through the same memory-backed port and always executes close after a successful open; and
-- a small, local seed directory derived from the licensed corpus plus project-original minimal fixtures.
+- the ordinary host regression and example; and
+- the opt-in compatibility corpus harness when its local corpus path is available.
 
-Fuzzing and sanitizers are not prerequisites for the initial corpus classification. They remain optional host tooling, are never enabled for target builds, and require their own toolchain-availability check before implementation.
+Sanitizers are not prerequisites for the initial corpus classification and are never enabled for target builds. Fuzzing remains deferred: a future fuzz entry point must accept arbitrary bytes through the same memory-backed port and always execute close after a successful open, with a small local seed directory derived from the licensed corpus plus project-original minimal fixtures.
 
 ## 8. Acceptance criteria
 
@@ -127,5 +128,5 @@ Stage 8 is complete only when:
 2. **Completed:** Freeze classifications and structural outcomes after reviewing discrepancies against public documentation and supported-feature policy.
 3. **Completed:** Implement the opt-in host harness and bounded short-read/lifecycle matrix.
 4. **Completed:** Add reviewed composition oracles for high-value geometry, transparency, interlace, and disposal cases.
-5. **Backend portion completed:** Run the selected BUILTIN, LIBC, and LVGL smoke matrix. Host sanitizer/fuzzing support remains explicitly deferred and is not enabled by this configuration.
+5. **Completed:** Run the selected BUILTIN, LIBC, and LVGL smoke matrix; validate the host-only sanitizer configuration using MSVC 19.51 ASan and GCC 13.3 ASan+UBSan. Fuzzing remains deferred.
 6. Update user-facing support documentation only after a behavior is implemented, tested, and stable.
