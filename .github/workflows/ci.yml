@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            binutils-arm-none-eabi gcc-arm-none-eabi
+            binutils-arm-none-eabi gcc-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build BUILTIN and PRIVATE static libraries
         shell: bash
         run: |
