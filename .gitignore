@@ -2,6 +2,7 @@
 /build/
 /cmake-build-*/
 /_TEMP/
+/testdata/compatibility_corpus/
 CMakeCache.txt
 CMakeFiles/
 CTestTestfile.cmake
