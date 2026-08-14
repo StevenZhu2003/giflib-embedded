@@ -12,7 +12,7 @@ The library deliberately does not open files, own a display, schedule playback, 
 - Present complete RGB888/BGR888 frames from a framebuffer that remains owned by the application.
 - Use a bounded, library-owned pool by default, or select PRIVATE, LIBC, or LVGL allocation backends at build time.
 
-The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Disposal method 3 and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`.
+The current decoder supports global and local palettes, transparency, interlace, image rectangles, timing metadata, and disposal methods 0, 1, and 2. Disposal method 3, Plain Text extensions, and Graphic Control Extension user-input requests return `GIF_STATUS_UNSUPPORTED_FEATURE`.
 
 ## Quick start
 
@@ -34,7 +34,7 @@ cmake --build build/host
 - [Memory Configuration](docs/MEMORY_CONFIGURATION.md) — backend selection, pool sizing profiles, and RAM boundaries.
 - [BUILTIN Pool Sizing and Fragmentation Study](docs/BUILTIN_POOL_SIZING_STUDY.md) — evidence and methodology behind the BUILTIN sizing profiles.
 - [Pool sizing calculator](tools/estimate_builtin_pool.py) — a planning utility; validate the final target and actual GIF corpus separately.
-- [Host Fuzz Testing](docs/FUZZING.md) — opt-in clang/libFuzzer workflow and local artifact-handling guidance.
+- [Host Validation](docs/HOST_VALIDATION.md) — local corpus provenance, compatibility matrix, host instrumentation, and fuzzing workflow/evidence.
 - [Embedded player example](examples/embedded_player/README.md) — a small, platform-independent reference application.
 - [Project TODO list](docs/TODO_LIST.md) — planned work only, not feature promises.
 

@@ -6,10 +6,7 @@ Current supported behavior is summarized in [README.md](../README.md). An item i
 
 ## HIGH — next work
 
-### Stage 8 — Compatibility corpus and host-side malformed-input hardening
-
-- Maintain the local curated corpus only where each asset has clear provenance and a stable expected result; add coverage only when it fills a demonstrated composition or malformed/truncated-input gap.
-- Run and review a sustained host-only libFuzzer campaign before treating the new fuzz harness as release evidence. Keep fuzzing outside target builds and do not claim real-hardware sanitizer validation.
+No active HIGH-priority item is scheduled. The completed corpus classification, sparse compatibility matrix, host instrumentation runs, and sustained host-only fuzz evidence are recorded in [HOST_VALIDATION.md](HOST_VALIDATION.md). Future corpus expansion requires a demonstrated gap and clear asset provenance; it is not a standing task.
 
 ## MID-HIGH — planned after the immediate work
 
