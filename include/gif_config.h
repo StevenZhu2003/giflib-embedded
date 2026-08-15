@@ -85,4 +85,40 @@
 #error "GIF_ENABLE_DISPOSAL_METHOD_3 must be 0 or 1"
 #endif
 
+/**
+ * @brief Enable synchronous FIFO-backed burst reads from the platform source.
+ *
+ * The default preserves direct forward-only reads through gif_porting_read().
+ * Set to 1 to select the optional internal FIFO adapter once that feature is
+ * included by the library build. The FIFO belongs to the decoder allocator
+ * domain; it is never supplied by the application.
+ */
+#ifndef GIF_ENABLE_BURST_READ
+#define GIF_ENABLE_BURST_READ 0
+#endif
+
+#if GIF_ENABLE_BURST_READ != 0 && GIF_ENABLE_BURST_READ != 1
+#error "GIF_ENABLE_BURST_READ must be 0 or 1"
+#endif
+
+/** @brief Bytes in one enabled decoder's private burst-read FIFO. */
+#ifndef GIF_BURST_READ_FIFO_SIZE
+#define GIF_BURST_READ_FIFO_SIZE 1024U
+#endif
+
+/** @brief Refill threshold for one enabled decoder's burst-read FIFO. */
+#ifndef GIF_BURST_READ_LOW_WATERMARK
+#define GIF_BURST_READ_LOW_WATERMARK 256U
+#endif
+
+#if GIF_ENABLE_BURST_READ
+#if GIF_BURST_READ_FIFO_SIZE == 0U
+#error "GIF_BURST_READ_FIFO_SIZE must be greater than zero when BURST_READ is enabled"
+#endif
+
+#if GIF_BURST_READ_LOW_WATERMARK >= GIF_BURST_READ_FIFO_SIZE
+#error "GIF_BURST_READ_LOW_WATERMARK must be smaller than GIF_BURST_READ_FIFO_SIZE"
+#endif
+#endif
+
 #endif /* GIF_CONFIG_H */

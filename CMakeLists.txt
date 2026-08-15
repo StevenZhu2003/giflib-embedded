@@ -199,6 +199,38 @@ else()
     set(GIFLIB_DISPOSAL_METHOD_3_VALUE 0)
 endif()
 
+option(GIFLIB_ENABLE_BURST_READ
+       "Enable the optional synchronous FIFO-backed burst-read adapter" OFF)
+set(GIFLIB_BURST_READ_FIFO_SIZE "1024" CACHE STRING
+    "Bytes in each enabled decoder's private burst-read FIFO")
+set(GIFLIB_BURST_READ_LOW_WATERMARK "256" CACHE STRING
+    "Refill threshold in each enabled decoder's burst-read FIFO")
+
+if(NOT GIFLIB_BURST_READ_FIFO_SIZE MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+        "GIFLIB_BURST_READ_FIFO_SIZE must be a non-negative decimal integer")
+endif()
+if(NOT GIFLIB_BURST_READ_LOW_WATERMARK MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+        "GIFLIB_BURST_READ_LOW_WATERMARK must be a non-negative decimal integer")
+endif()
+if(GIFLIB_ENABLE_BURST_READ)
+    if(GIFLIB_BURST_READ_FIFO_SIZE STREQUAL "0")
+        message(FATAL_ERROR
+            "GIFLIB_BURST_READ_FIFO_SIZE must be greater than zero when "
+            "GIFLIB_ENABLE_BURST_READ is ON")
+    endif()
+    if(GIFLIB_BURST_READ_LOW_WATERMARK GREATER_EQUAL
+       GIFLIB_BURST_READ_FIFO_SIZE)
+        message(FATAL_ERROR
+            "GIFLIB_BURST_READ_LOW_WATERMARK must be smaller than "
+            "GIFLIB_BURST_READ_FIFO_SIZE when GIFLIB_ENABLE_BURST_READ is ON")
+    endif()
+    set(GIFLIB_BURST_READ_VALUE 1)
+else()
+    set(GIFLIB_BURST_READ_VALUE 0)
+endif()
+
 set(GIFLIB_LVGL_INCLUDE_DIR "" CACHE PATH
     "Directory containing the public LVGL lvgl.h header (LVGL backend only)")
 set(GIFLIB_LVGL_LIBRARY "" CACHE STRING
@@ -238,6 +270,14 @@ function(giflib_apply_common_options target)
         C_STANDARD 99
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS NO
+    )
+
+    # Keep standalone test and investigation targets aligned with the selected
+    # library configuration even when they compile decoder sources directly.
+    target_compile_definitions(${target} PRIVATE
+        GIF_ENABLE_BURST_READ=${GIFLIB_BURST_READ_VALUE}
+        GIF_BURST_READ_FIFO_SIZE=${GIFLIB_BURST_READ_FIFO_SIZE}U
+        GIF_BURST_READ_LOW_WATERMARK=${GIFLIB_BURST_READ_LOW_WATERMARK}U
     )
 
     if(MSVC)
@@ -323,6 +363,9 @@ add_library(giflib_embedded::giflib_embedded ALIAS giflib_embedded)
 giflib_add_memory_backend(giflib_embedded ${GIF_MEM_BACKEND_NORMALIZED})
 target_compile_definitions(giflib_embedded PUBLIC
     GIF_ENABLE_DISPOSAL_METHOD_3=${GIFLIB_DISPOSAL_METHOD_3_VALUE}
+    GIF_ENABLE_BURST_READ=${GIFLIB_BURST_READ_VALUE}
+    GIF_BURST_READ_FIFO_SIZE=${GIFLIB_BURST_READ_FIFO_SIZE}U
+    GIF_BURST_READ_LOW_WATERMARK=${GIFLIB_BURST_READ_LOW_WATERMARK}U
 )
 
 # Publish only the facade include directory; internal boundaries remain private.

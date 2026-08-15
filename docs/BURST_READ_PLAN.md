@@ -175,12 +175,27 @@ Update only canonical locations after implementation:
 
 ## 9. Implementation order and completion criteria
 
-1. Add configuration validation and CMake forwarding with the feature defaulted off.
-2. Add the private FIFO state and refactor the input bridge behind one focused helper boundary.
-3. Freeze scheduled-source terminal behavior in focused tests before optimizing the fill loop.
-4. Implement wrap-aware fill and consumption, then run functional-equivalence tests.
-5. Add the enabled build configurations and allocator/pool checks.
-6. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
-7. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
+### Phase 1 — configuration boundary (complete)
+
+The first implementation stage adds the three `GIF_*` configuration macros,
+their default values and enabled-mode validation in `gif_config.h`. CMake now
+accepts matching cache entries, forwards the selected values to the library and
+all locally compiled decoder targets, and rejects an enabled zero-capacity FIFO
+or a low-water mark at or above FIFO capacity.
+
+This stage deliberately adds no FIFO object, input helper, porting change, or
+read-path behavior. A default-off host regression and an enabled-config host
+regression both pass; a deliberately invalid enabled configuration is rejected
+at CMake configuration time. The next stage freezes source-terminal behavior
+before any FIFO state is introduced.
+
+### Remaining implementation order
+
+1. Add the private FIFO state and refactor the input bridge behind one focused helper boundary.
+2. Freeze scheduled-source terminal behavior in focused tests before optimizing the fill loop.
+3. Implement wrap-aware fill and consumption, then run functional-equivalence tests.
+4. Add the enabled build configurations and allocator/pool checks.
+5. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
+6. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
 
 The work is complete only when default-off trimming, enabled input equivalence, terminal-result behavior, fixed-pool accounting, target sizing, and documentation all agree. A real-target storage measurement may guide a product's chosen FIFO depth, but does not block the correctness of the configurable feature itself.
