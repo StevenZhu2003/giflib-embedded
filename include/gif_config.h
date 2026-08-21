@@ -103,12 +103,12 @@
 
 /** @brief Bytes in one enabled decoder's private burst-read FIFO. */
 #ifndef GIF_BURST_READ_FIFO_SIZE
-#define GIF_BURST_READ_FIFO_SIZE 1024U
+#define GIF_BURST_READ_FIFO_SIZE 256U
 #endif
 
 /** @brief Refill threshold for one enabled decoder's burst-read FIFO. */
 #ifndef GIF_BURST_READ_LOW_WATERMARK
-#define GIF_BURST_READ_LOW_WATERMARK 256U
+#define GIF_BURST_READ_LOW_WATERMARK 64U
 #endif
 
 #if GIF_ENABLE_BURST_READ

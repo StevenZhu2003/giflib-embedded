@@ -37,11 +37,11 @@ internal FIFO ────────────────────┐
 #endif
 
 #ifndef GIF_BURST_READ_FIFO_SIZE
-#define GIF_BURST_READ_FIFO_SIZE 1024U
+#define GIF_BURST_READ_FIFO_SIZE 256U
 #endif
 
 #ifndef GIF_BURST_READ_LOW_WATERMARK
-#define GIF_BURST_READ_LOW_WATERMARK 256U
+#define GIF_BURST_READ_LOW_WATERMARK 64U
 #endif
 ```
 
@@ -203,7 +203,7 @@ The default-off host matrix (13 tests) and the enabled host matrix (12 tests) bo
 
 The in-memory test port now records the largest requested byte count. Enabled facade tests verify that an initial port request uses the configured FIFO capacity, that closing immediately after an open with unread prefetched bytes still closes the port exactly once, and that a short-read multi-frame stream continues through the FIFO to `GIF_STATUS_END_OF_STREAM`.
 
-The same tests passed in both an ordinary enabled configuration (1024-byte FIFO, 256-byte low-water mark) and a deliberately small configuration (32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the FIFO and uses seven-byte source reads, so it covers repeated refill and ring wrap without relying on a test-only decoder interface. The default-off host matrix remains unchanged and passes.
+The same tests passed in both the default enabled configuration (256-byte FIFO, 64-byte low-water mark) and a deliberately small configuration (32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the FIFO and uses seven-byte source reads, so it covers repeated refill and ring wrap without relying on a test-only decoder interface. The default-off host matrix remains unchanged and passes.
 
 ### Phase 5 — enabled matrix and allocator coverage (complete)
 
@@ -213,9 +213,9 @@ The ordinary project CI now contains a Linux GCC BURST_READ plus Disposal 3 job.
 
 ### Phase 6 — ARM32 sizing and estimator integration (complete)
 
-The Vitis 2022.2 ARM GCC 11.2 target build was compiled with debug type information and its generated object metadata was inspected. `GifDecoder` measures 76 bytes in the default build, 80 bytes with Disposal Method 3, 124 bytes with a 32-byte FIFO, 1,116 bytes with the default 1,024-byte FIFO, and 1,120 bytes with both the default FIFO and Disposal Method 3. `GifFileType` is 76 bytes and `GifFilePrivateType` is 24,892 bytes on this ABI, yielding fixed selected-build allocation payloads of 25,044, 25,048, 26,084, and 26,088 bytes respectively.
+The Vitis 2022.2 ARM GCC 11.2 target build was compiled with debug type information and its generated object metadata was inspected. `GifDecoder` measures 76 bytes in the default build, 80 bytes with Disposal Method 3, 124 bytes with a 32-byte FIFO, 348 bytes with the default 256-byte FIFO, 352 bytes with that FIFO plus Disposal Method 3, and 1,116 bytes in a separately measured 1,024-byte configuration. `GifFileType` is 76 bytes and `GifFilePrivateType` is 24,892 bytes on this ABI, yielding fixed selected-build allocation payloads of 25,044, 25,048, 25,316, and 25,320 bytes for the default feature combinations.
 
-The measured ARM32 FIFO increment is `align_up(capacity + 16, 4)`: the 1,024-byte default contributes 1,040 bytes per live decoder. `tools/estimate_builtin_pool.py` now accepts `--burst-read-fifo-bytes`, reports the FIFO contribution separately, and includes it in payload-derived, Balanced, and Hardened profiles. The dependency-free calculator was exercised through a uv-managed environment for one- and two-decoder inputs; its default 1,024-byte result matches the target measurements.
+The measured ARM32 FIFO increment is `align_up(capacity + 16, 4)`: the 256-byte default contributes 272 bytes per live decoder, while the previously measured 1,024-byte configuration contributes 1,040 bytes. `tools/estimate_builtin_pool.py` now accepts `--burst-read-fifo-bytes`, reports the FIFO contribution separately, and includes it in payload-derived, Balanced, and Hardened profiles. The dependency-free calculator was exercised through a uv-managed environment for one- and two-decoder inputs; both values match the target measurements.
 
 ### Remaining implementation order
 

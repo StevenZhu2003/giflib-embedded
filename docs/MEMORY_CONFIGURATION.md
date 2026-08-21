@@ -29,7 +29,7 @@ An enabled build preserves the caller-owned framebuffer model. Restore-to-Previo
 
 `GIF_ENABLE_BURST_READ` defaults to `0`. When set to `1`, every live decoder contains one private FIFO of `GIF_BURST_READ_FIFO_SIZE` bytes. The FIFO is allocated as part of the decoder object through the selected decoder backend; it is neither application-owned storage nor a port-owned handle. The low-water mark, `GIF_BURST_READ_LOW_WATERMARK`, controls when the library refills that FIFO and does not add another allocation.
 
-For a product with `N` simultaneously live decoders, the FIFO increment is `N × GIF_BURST_READ_FIFO_SIZE` plus the selected ABI's ring-state and alignment cost. On the verified ARM32 ABI, the exact per-decoder increment is `align_up(GIF_BURST_READ_FIFO_SIZE + 16, 4)`: 1,040 bytes for the default 1,024-byte FIFO. The calculator accepts `--burst-read-fifo-bytes` and includes that measured ARM32 increment in every profile. The FIFO does not alter the separate framebuffer, disposal-method-3 snapshot, or port-handle terms.
+For a product with `N` simultaneously live decoders, the FIFO increment is `N × GIF_BURST_READ_FIFO_SIZE` plus the selected ABI's ring-state and alignment cost. On the verified ARM32 ABI, the exact per-decoder increment is `align_up(GIF_BURST_READ_FIFO_SIZE + 16, 4)`: 272 bytes for the default 256-byte FIFO. The calculator accepts `--burst-read-fifo-bytes` and includes that measured ARM32 increment in every profile. The FIFO does not alter the separate framebuffer, disposal-method-3 snapshot, or port-handle terms.
 
 Enable it when larger sequential storage requests can amortize a meaningful transaction cost. Leave it disabled for memory-backed resources, inexpensive small reads, or products where the added per-decoder RAM outweighs that benefit. See [PORTING_GUIDE.md](PORTING_GUIDE.md) for its unchanged porting contract and [USER_GUIDE.md](USER_GUIDE.md) for configuration guidance.
 
@@ -73,7 +73,7 @@ Use [`tools/estimate_builtin_pool.py`](../tools/estimate_builtin_pool.py) with d
 | Balanced | `max(payload-derived + 16 KiB, W + 32 KiB + 40 KiB × N + H_port(N))`. | The normal starting point for a general serialized product. Its floor encloses the completed random mixed-lifecycle boundary matrix for methods 0/1/2. |
 | Hardened | `max(payload-derived + 128 KiB, W + 128 KiB + 64 KiB × N + H_port(N))`. | A product willing to trade more RAM for stronger evidence against varied lifetimes, source errors, holes, and wide transient rows. It passed the declared adverse-lifecycle study for methods 0/1/2. |
 
-The calculator defaults describe the verified ARM32 ABI: 25,044 bytes of fixed decoder payload in a method-3-disabled, BURST_READ-disabled build and 25,048 bytes with `--disposal3-enabled`. `--burst-read-fifo-bytes 1024` adds the measured 1,040-byte FIFO increment per live decoder, producing fixed selected-build payloads of 26,084 and 26,088 bytes respectively. The caller-owned snapshot remains excluded. For another ABI, measure the selected feature combination, pass its complete per-decoder value through `--decoder-fixed-bytes`, and leave `--burst-read-fifo-bytes` at zero rather than applying the ARM32 increment.
+The calculator defaults describe the verified ARM32 ABI: 25,044 bytes of fixed decoder payload in a method-3-disabled, BURST_READ-disabled build and 25,048 bytes with `--disposal3-enabled`. `--burst-read-fifo-bytes 256` adds the measured 272-byte FIFO increment per live decoder, producing fixed selected-build payloads of 25,316 and 25,320 bytes respectively. The caller-owned snapshot remains excluded. For another ABI, measure the selected feature combination, pass its complete per-decoder value through `--decoder-fixed-bytes`, and leave `--burst-read-fifo-bytes` at zero rather than applying the ARM32 increment.
 
 ### Orientation matrix
 
@@ -94,7 +94,7 @@ python tools/estimate_builtin_pool.py `
     --live-decoders 2 `
     --max-row-width 800 `
     --port-handle-bytes 64 `
-    --burst-read-fifo-bytes 1024
+    --burst-read-fifo-bytes 256
 ```
 
 The calculator offers `--json` for planning scripts. Its inputs are assertions supplied by the user, not measurements or guarantees.

@@ -43,8 +43,8 @@ The enabled FIFO is configured at compile time:
 
 ```c
 #define GIF_ENABLE_BURST_READ 1
-#define GIF_BURST_READ_FIFO_SIZE 1024U
-#define GIF_BURST_READ_LOW_WATERMARK 256U
+#define GIF_BURST_READ_FIFO_SIZE 256U
+#define GIF_BURST_READ_LOW_WATERMARK 64U
 ```
 
 The FIFO capacity must be non-zero and the low-water mark must be smaller than the capacity. CMake offers the corresponding `GIFLIB_ENABLE_BURST_READ`, `GIFLIB_BURST_READ_FIFO_SIZE`, and `GIFLIB_BURST_READ_LOW_WATERMARK` settings. Begin with the defaults, then use target measurements to choose a capacity that amortizes the source's setup cost without consuming unnecessary decoder-domain RAM.

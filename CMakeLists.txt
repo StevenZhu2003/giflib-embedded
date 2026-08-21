@@ -201,9 +201,9 @@ endif()
 
 option(GIFLIB_ENABLE_BURST_READ
        "Enable the optional synchronous FIFO-backed burst-read adapter" OFF)
-set(GIFLIB_BURST_READ_FIFO_SIZE "1024" CACHE STRING
+set(GIFLIB_BURST_READ_FIFO_SIZE "256" CACHE STRING
     "Bytes in each enabled decoder's private burst-read FIFO")
-set(GIFLIB_BURST_READ_LOW_WATERMARK "256" CACHE STRING
+set(GIFLIB_BURST_READ_LOW_WATERMARK "64" CACHE STRING
     "Refill threshold in each enabled decoder's burst-read FIFO")
 
 if(NOT GIFLIB_BURST_READ_FIFO_SIZE MATCHES "^[0-9]+$")
