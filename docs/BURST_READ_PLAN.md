@@ -228,11 +228,25 @@ the enabled adapter's final EOF probe; it continues to assert the prior
 direct-read count when the feature is disabled. The next stage adds dedicated
 instrumentation for FIFO thresholds, wrap, and requested batch sizes.
 
+### Phase 4 — focused FIFO behavior coverage (complete)
+
+The in-memory test port now records the largest requested byte count. Enabled
+facade tests verify that an initial port request uses the configured FIFO
+capacity, that closing immediately after an open with unread prefetched bytes
+still closes the port exactly once, and that a short-read multi-frame stream
+continues through the FIFO to `GIF_STATUS_END_OF_STREAM`.
+
+The same tests passed in both an ordinary enabled configuration (1024-byte
+FIFO, 256-byte low-water mark) and a deliberately small configuration
+(32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the
+FIFO and uses seven-byte source reads, so it covers repeated refill and ring
+wrap without relying on a test-only decoder interface. The default-off host
+matrix remains unchanged and passes.
+
 ### Remaining implementation order
 
-1. Add wrap- and threshold-focused FIFO tests, then run broader functional-equivalence tests.
-2. Add the enabled build configurations and allocator/pool checks.
-3. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
-4. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
+1. Run the broader enabled functional-equivalence matrix and allocator/pool checks.
+2. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
+3. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
 
 The work is complete only when default-off trimming, enabled input equivalence, terminal-result behavior, fixed-pool accounting, target sizing, and documentation all agree. A real-target storage measurement may guide a product's chosen FIFO depth, but does not block the correctness of the configurable feature itself.

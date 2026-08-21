@@ -416,6 +416,50 @@ static void test_legal_short_reads(void) {
     gif_decoder_close(decoder);
 }
 
+#if GIF_ENABLE_BURST_READ
+/**
+ * @brief Verify batch-sized reads, early close, and a small-FIFO stream.
+ *
+ * The second source is deliberately larger than the small local test FIFO.
+ * Its successful multi-frame decode therefore exercises refill after the
+ * ring indices have advanced, without exposing private FIFO state to tests.
+ */
+static void test_burst_read_adapter(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[3U * 8U * 3U] = {0};
+
+    memory_source_init(&source, gif_two_pixel_global,
+                       sizeof(gif_two_pixel_global));
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    CHECK(decoder != NULL);
+    CHECK(source.largest_requested == GIF_BURST_READ_FIFO_SIZE);
+    gif_decoder_close(decoder);
+    CHECK(source.close_calls == 1U);
+
+    memory_source_init(&source, gif_interlaced_composition,
+                       sizeof(gif_interlaced_composition));
+    source.max_chunk = 7U;
+    decoder = NULL;
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(source.largest_requested == GIF_BURST_READ_FIFO_SIZE);
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), 3U * 3U,
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_END_OF_STREAM);
+        CHECK(source.read_calls > 1U);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1U);
+    }
+}
+#endif
+
 /** @brief Accept a port read that returns final bytes together with EOF. */
 static void test_final_bytes_with_eof(void) {
     MemorySource source;
@@ -1759,6 +1803,9 @@ static void test_repeated_streaming_decode(void) {
 int main(void) {
     test_open_memory_source();
     test_legal_short_reads();
+#if GIF_ENABLE_BURST_READ
+    test_burst_read_adapter();
+#endif
     test_final_bytes_with_eof();
     test_terminal_read_contract_baseline();
     test_port_open_error();

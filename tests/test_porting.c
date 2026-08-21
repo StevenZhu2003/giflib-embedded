@@ -67,6 +67,9 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
     }
 
     source->read_calls++;
+    if (requested_bytes > source->largest_requested) {
+        source->largest_requested = requested_bytes;
+    }
     if (source->inject_zero_ok && !source->zero_ok_emitted &&
         source->offset == source->zero_ok_offset) {
         source->zero_ok_emitted = true;

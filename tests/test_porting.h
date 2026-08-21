@@ -22,6 +22,7 @@ typedef struct MemorySource {
     size_t error_offset;       /**< Offset at which an I/O error is raised. */
     size_t zero_ok_offset;     /**< Offset at which one zero-byte OK is raised. */
     size_t read_calls;         /**< Number of read invocations. */
+    size_t largest_requested;  /**< Largest byte count requested by the decoder. */
     size_t close_calls;        /**< Number of close invocations. */
     bool inject_open_error;    /**< Whether source open must fail. */
     bool inject_error;         /**< Whether fault injection is enabled. */
