@@ -26,6 +26,10 @@ P_hardened_tested(N, W) = W + 128 KiB + 64 KiB × N
 
 The completed workload matrix exercised disposal methods 0, 1, and 2. Restore to Previous (disposal method 3) is now an optional compile-time feature, but its packed pre-composition rectangle is application-owned `GifOutputSurface` storage and is not part of any measured or calculated BUILTIN pool profile. A product that enables it must separately reserve `S_previous(N) = N × R`, where `R` is the largest accepted image-rectangle area times the output pixel size; no output-surface stride padding is retained. The calculator intentionally excludes this application storage. This remains a modelled product bound rather than an experimental claim that method 3 received the same endurance coverage.
 
+### BURST_READ scope
+
+BURST_READ is an optional later feature and was not present in the original mixed-lifecycle workload matrix. Its FIFO is decoder-owned rather than application-owned, so the calculator adds the separately measured selected-build increment to every profile. On the verified ARM32 ABI, a 1,024-byte FIFO increases one decoder's fixed payload by 1,040 bytes; this is a structure-layout measurement, not a replacement for product validation with a chosen FIFO depth and source workload.
+
 ## Scope and memory boundary
 
 The BUILTIN backend owns a single fixed TLSF pool. It includes every dynamic allocation made through `gif_mem_*`, including decoder state, giflib state, palette objects, the current image row buffer, and any dynamic port handle allocated with `gif_porting_mem_alloc()`.

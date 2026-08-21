@@ -38,6 +38,7 @@ gif_frame_*.ppm
 *.log
 *.profraw
 *.profdata
+__pycache__/
 core
 core.*
 

@@ -25,6 +25,7 @@ class Estimate:
     """Calculated pool sizes and the input components that produced them."""
 
     fixed_decoder_bytes: int
+    burst_read_bytes: int
     global_palette_bytes: int
     local_palette_bytes: int
     row_buffer_bytes: int
@@ -57,6 +58,13 @@ def round_up(value: int, alignment: int) -> int:
     return ((value + alignment - 1) // alignment) * alignment
 
 
+def arm32_burst_read_bytes(fifo_bytes: int) -> int:
+    """Return the measured ARM32 decoder-size increment for one FIFO."""
+    if fifo_bytes == 0:
+        return 0
+    return round_up(fifo_bytes + 16, 4)
+
+
 def estimate(arguments: argparse.Namespace) -> Estimate:
     """Calculate payload, balanced, and hardened BUILTIN pool profiles."""
     palette_bytes = round_up(
@@ -64,13 +72,15 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
         arguments.palette_entries * arguments.colour_entry_bytes,
         arguments.alignment)
     fixed_decoder_bytes = arguments.live_decoders * arguments.decoder_fixed_bytes
+    burst_read_bytes = arguments.live_decoders * arguments.burst_read_bytes
     global_palette_bytes = arguments.global_palettes * palette_bytes
     local_palette_bytes = arguments.local_palettes * palette_bytes
     row_buffer_bytes = round_up(arguments.max_row_width, arguments.alignment)
     port_handle_bytes = arguments.live_decoders * arguments.port_handle_bytes
     payload_model_bytes = (
-        fixed_decoder_bytes + global_palette_bytes + local_palette_bytes +
-        row_buffer_bytes + port_handle_bytes + arguments.tlsf_control_bytes
+        fixed_decoder_bytes + burst_read_bytes + global_palette_bytes +
+        local_palette_bytes + row_buffer_bytes + port_handle_bytes +
+        arguments.tlsf_control_bytes
     )
     payload_estimate_bytes = payload_model_bytes + arguments.model_margin_bytes
 
@@ -79,7 +89,7 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
     # W multiplied by N.
     balanced_floor = (
         row_buffer_bytes + 32 * KIB + 40 * KIB * arguments.live_decoders +
-        port_handle_bytes
+        port_handle_bytes + burst_read_bytes
     )
     balanced_bytes = max(
         payload_estimate_bytes + arguments.balanced_margin_bytes,
@@ -90,7 +100,7 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
     # a profile, not forced upon small, controlled products.
     hardened_floor = (
         row_buffer_bytes + 128 * KIB + 64 * KIB * arguments.live_decoders +
-        port_handle_bytes
+        port_handle_bytes + burst_read_bytes
     )
     hardened_bytes = max(
         payload_estimate_bytes + arguments.hardened_margin_bytes,
@@ -98,6 +108,7 @@ def estimate(arguments: argparse.Namespace) -> Estimate:
     )
     return Estimate(
         fixed_decoder_bytes=fixed_decoder_bytes,
+        burst_read_bytes=burst_read_bytes,
         global_palette_bytes=global_palette_bytes,
         local_palette_bytes=local_palette_bytes,
         row_buffer_bytes=row_buffer_bytes,
@@ -134,6 +145,10 @@ def main() -> None:
                         help=("select the verified ARM32 fixed-decoder size for "
                               "a build with disposal method 3 enabled; its caller "
                               "snapshot remains outside this estimate"))
+    parser.add_argument("--burst-read-fifo-bytes", type=non_negative,
+                        default=0,
+                        help=("enable the ARM32 BURST_READ increment for one "
+                              "decoder FIFO of this capacity; zero disables it"))
     parser.add_argument("--decoder-fixed-bytes", type=positive, default=None,
                         help=("per-decoder fixed payload, excluding palettes and "
                               "row; defaults to the selected verified ARM32 build"))
@@ -159,6 +174,8 @@ def main() -> None:
         arguments.decoder_fixed_bytes = (
             25048 if arguments.disposal3_enabled else 25044
         )
+    arguments.burst_read_bytes = arm32_burst_read_bytes(
+        arguments.burst_read_fifo_bytes)
     if arguments.global_palettes is None:
         arguments.global_palettes = arguments.live_decoders
     if arguments.local_palettes is None:
@@ -173,11 +190,12 @@ def main() -> None:
         return
 
     print("GIF_MEM_USE_BUILTIN pool estimate")
-    print("  The fixed-decoder and colour-map defaults are verified ARM32 values.")
+    print("  The fixed-decoder, BURST_READ, and colour-map defaults are verified ARM32 values.")
     print("  Override them for another ABI; validate the final capacity on the target.")
     print()
     print("Payload model")
     print(f"  fixed decoder state : {format_bytes(result.fixed_decoder_bytes)}")
+    print(f"  BURST_READ FIFO     : {format_bytes(result.burst_read_bytes)}")
     print(f"  retained global maps: {format_bytes(result.global_palette_bytes)}")
     print(f"  retained local maps : {format_bytes(result.local_palette_bytes)}")
     print(f"  one active row      : {format_bytes(result.row_buffer_bytes)}")

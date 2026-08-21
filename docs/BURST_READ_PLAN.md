@@ -211,9 +211,14 @@ An enabled host configuration now combines BURST_READ, Disposal Method 3, the pl
 
 The ordinary project CI now contains a Linux GCC BURST_READ plus Disposal 3 job. It runs the committed host suite and example with the optional features enabled. The local compatibility corpus remains deliberately outside CI because it is not repository content.
 
+### Phase 6 — ARM32 sizing and estimator integration (complete)
+
+The Vitis 2022.2 ARM GCC 11.2 target build was compiled with debug type information and its generated object metadata was inspected. `GifDecoder` measures 76 bytes in the default build, 80 bytes with Disposal Method 3, 124 bytes with a 32-byte FIFO, 1,116 bytes with the default 1,024-byte FIFO, and 1,120 bytes with both the default FIFO and Disposal Method 3. `GifFileType` is 76 bytes and `GifFilePrivateType` is 24,892 bytes on this ABI, yielding fixed selected-build allocation payloads of 25,044, 25,048, 26,084, and 26,088 bytes respectively.
+
+The measured ARM32 FIFO increment is `align_up(capacity + 16, 4)`: the 1,024-byte default contributes 1,040 bytes per live decoder. `tools/estimate_builtin_pool.py` now accepts `--burst-read-fifo-bytes`, reports the FIFO contribution separately, and includes it in payload-derived, Balanced, and Hardened profiles. The dependency-free calculator was exercised through a uv-managed environment for one- and two-decoder inputs; its default 1,024-byte result matches the target measurements.
+
 ### Remaining implementation order
 
-1. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
-2. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
+1. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
 
 The work is complete only when default-off trimming, enabled input equivalence, terminal-result behavior, fixed-pool accounting, target sizing, and documentation all agree. A real-target storage measurement may guide a product's chosen FIFO depth, but does not block the correctness of the configurable feature itself.
