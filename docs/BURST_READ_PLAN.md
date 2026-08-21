@@ -189,6 +189,25 @@ regression both pass; a deliberately invalid enabled configuration is rejected
 at CMake configuration time. The next stage freezes source-terminal behavior
 before any FIFO state is introduced.
 
+### Phase 2 — source-terminal baseline (complete)
+
+The host test port can now emit one zero-byte `GIF_PORTING_OK` result at a
+chosen source offset, in addition to its existing short-read, EOF, and I/O
+schedules. Focused facade tests freeze the current public behavior under
+single-byte source reads:
+
+- a complete GIF whose final trailer byte accompanies `GIF_PORTING_EOF` yields
+  its frame and then `GIF_STATUS_END_OF_STREAM`;
+- the same complete GIF whose final trailer byte accompanies
+  `GIF_PORTING_IO_ERROR` yields the same frame and then
+  `GIF_STATUS_END_OF_STREAM`; and
+- a zero-byte `GIF_PORTING_OK` at the first frame read yields a sticky
+  `GIF_STATUS_IO_ERROR`.
+
+These outcomes are the reference for the later FIFO terminal-state adapter.
+The test port and decoder tests changed only to make that behavior explicit;
+the decoder input path is still direct.
+
 ### Remaining implementation order
 
 1. Add the private FIFO state and refactor the input bridge behind one focused helper boundary.

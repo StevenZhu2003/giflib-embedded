@@ -425,6 +425,74 @@ static void test_final_bytes_with_eof(void) {
     gif_decoder_close(decoder);
 }
 
+/**
+ * @brief Freeze source-terminal outcomes needed by the later burst adapter.
+ *
+ * A final trailer byte remains meaningful when it accompanies either EOF or
+ * an I/O status: giflib has already consumed a complete GIF at that point.
+ * In contrast, a zero-byte successful port result cannot make progress and
+ * becomes the existing sticky public I/O result.
+ */
+static void test_terminal_read_contract_baseline(void) {
+    MemorySource source;
+    GifDecoder *decoder = NULL;
+    GifStreamInfo stream;
+    GifFrameInfo frame;
+    uint8_t pixels[6];
+
+    memory_source_init(&source, gif_two_pixel_global,
+                       sizeof(gif_two_pixel_global));
+    source.max_chunk = 1U;
+    source.eof_with_final_bytes = true;
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_END_OF_STREAM);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_END_OF_STREAM);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1U);
+    }
+
+    decoder = NULL;
+    memory_source_init(&source, gif_two_pixel_global,
+                       sizeof(gif_two_pixel_global));
+    source.max_chunk = 1U;
+    source.inject_error = true;
+    source.error_offset = sizeof(gif_two_pixel_global);
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_END_OF_STREAM);
+        CHECK(gif_decoder_next_frame(decoder, &frame) ==
+              GIF_STATUS_END_OF_STREAM);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1U);
+    }
+
+    decoder = NULL;
+    memory_source_init(&source, gif_two_pixel_global,
+                       sizeof(gif_two_pixel_global));
+    source.max_chunk = 1U;
+    source.inject_zero_ok = true;
+    source.zero_ok_offset = sizeof(gif_header_with_palette);
+    CHECK(open_source(&source, &decoder, &stream) == GIF_STATUS_OK);
+    if (decoder != NULL) {
+        CHECK(bind_output(decoder, pixels, sizeof(pixels), sizeof(pixels),
+                          GIF_PIXEL_RGB888) == GIF_STATUS_OK);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
+        CHECK(gif_decoder_next_frame(decoder, &frame) == GIF_STATUS_IO_ERROR);
+        gif_decoder_close(decoder);
+        CHECK(source.close_calls == 1U);
+    }
+}
+
 /** @brief Map a platform source-open failure without issuing a close. */
 static void test_port_open_error(void) {
     MemorySource source;
@@ -1685,6 +1753,7 @@ int main(void) {
     test_open_memory_source();
     test_legal_short_reads();
     test_final_bytes_with_eof();
+    test_terminal_read_contract_baseline();
     test_port_open_error();
     test_unexpected_eof();
     test_injected_io_error();

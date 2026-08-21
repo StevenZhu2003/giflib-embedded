@@ -67,6 +67,11 @@ GifPortingStatus gif_porting_read(GifPortingHandle handle,
     }
 
     source->read_calls++;
+    if (source->inject_zero_ok && !source->zero_ok_emitted &&
+        source->offset == source->zero_ok_offset) {
+        source->zero_ok_emitted = true;
+        return GIF_PORTING_OK;
+    }
     if (source->inject_error && source->offset >= source->error_offset) {
         return GIF_PORTING_IO_ERROR;
     }
