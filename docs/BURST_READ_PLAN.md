@@ -208,13 +208,31 @@ These outcomes are the reference for the later FIFO terminal-state adapter.
 The test port and decoder tests changed only to make that behavior explicit;
 the decoder input path is still direct.
 
+### Phase 3 — private FIFO input adapter (complete)
+
+`GifDecoder` now contains the FIFO and its ring metadata only when
+`GIF_ENABLE_BURST_READ` is enabled. The existing giflib read callback remains
+the single input boundary; it selects a private FIFO helper in an enabled
+build and retains the previous direct port read path otherwise.
+
+The helper fills contiguous FIFO spans through `gif_porting_read()`, including
+the second span after a ring wrap. It remembers whether a terminal port result
+arrived with usable bytes: those bytes are delivered before the terminal is
+reported, whereas a zero-byte terminal result is reported on the next byte
+request. This preserves the Phase 2 public status sequence even if the FIFO
+has read ahead of giflib.
+
+The default-off host matrix (13 tests) and the enabled host matrix (12 tests)
+both pass. The existing single-byte short-read test now explicitly documents
+the enabled adapter's final EOF probe; it continues to assert the prior
+direct-read count when the feature is disabled. The next stage adds dedicated
+instrumentation for FIFO thresholds, wrap, and requested batch sizes.
+
 ### Remaining implementation order
 
-1. Add the private FIFO state and refactor the input bridge behind one focused helper boundary.
-2. Freeze scheduled-source terminal behavior in focused tests before optimizing the fill loop.
-3. Implement wrap-aware fill and consumption, then run functional-equivalence tests.
-4. Add the enabled build configurations and allocator/pool checks.
-5. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
-6. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
+1. Add wrap- and threshold-focused FIFO tests, then run broader functional-equivalence tests.
+2. Add the enabled build configurations and allocator/pool checks.
+3. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
+4. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
 
 The work is complete only when default-off trimming, enabled input equivalence, terminal-result behavior, fixed-pool accounting, target sizing, and documentation all agree. A real-target storage measurement may guide a product's chosen FIFO depth, but does not block the correctness of the configurable feature itself.

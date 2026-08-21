@@ -405,7 +405,14 @@ static void test_legal_short_reads(void) {
     CHECK(decoder != NULL);
     CHECK(stream.canvas_width == 2);
     CHECK(stream.canvas_height == 3);
+#if GIF_ENABLE_BURST_READ
+    /* The FIFO keeps filling after the screen descriptor until the source
+     * reports its terminal state; each one-byte port read is therefore
+     * followed by one final zero-byte EOF read. */
+    CHECK(source.read_calls == sizeof(gif_header_with_palette) + 1U);
+#else
     CHECK(source.read_calls == sizeof(gif_header_with_palette));
+#endif
     gif_decoder_close(decoder);
 }
 

@@ -49,6 +49,14 @@ struct GifDecoder {
     GifFileType *gif;                  /**< Private giflib decoder instance. */
     GifPortingHandle source_handle;    /**< Open handle supplied by the port. */
     GifSourceTerminal source_terminal; /**< Remembered source terminal state. */
+#if GIF_ENABLE_BURST_READ
+    GifSourceTerminal burst_terminal; /**< Deferred terminal state of FIFO data. */
+    size_t burst_read_index;           /**< Next FIFO byte delivered to giflib. */
+    size_t burst_write_index;          /**< Next FIFO byte written by the port. */
+    size_t burst_byte_count;           /**< Number of valid bytes currently buffered. */
+    uint8_t burst_terminal_with_data;  /**< Terminal status accompanied its final bytes. */
+    uint8_t burst_fifo[GIF_BURST_READ_FIFO_SIZE]; /**< Per-decoder read-ahead FIFO. */
+#endif
     GifOutputSurface output;           /**< Copied caller output descriptor. */
     GifStatus terminal_status;         /**< Sticky public decode failure. */
     GifFrameControl pending_control;   /**< Control state for the next image. */
@@ -77,12 +85,151 @@ static inline void gif_decoder_reset_frame_control(GifFrameControl *control) {
     control->disposal_mode = DISPOSAL_UNSPECIFIED;
 }
 
+#if GIF_ENABLE_BURST_READ
+/**
+ * @brief Convert the deferred FIFO terminal state to the porting status.
+ *
+ * @param[in] terminal Deferred source terminal state.
+ * @return Corresponding byte-source status.
+ */
+static inline GifPortingStatus gif_decoder_burst_terminal_status(
+    GifSourceTerminal terminal) {
+    return terminal == GIF_SOURCE_EOF ? GIF_PORTING_EOF : GIF_PORTING_IO_ERROR;
+}
+
+/**
+ * @brief Refill the FIFO through one or two contiguous port reads.
+ *
+ * Reads continue while the port makes progress so that a normal burst fills
+ * the available FIFO space. A terminal status is retained until its buffered
+ * bytes have been delivered, preserving the source contract observed by
+ * giflib.
+ *
+ * @param[in,out] decoder Decoder containing the private FIFO state.
+ */
+static void gif_decoder_burst_refill(GifDecoder *decoder) {
+    while (decoder->burst_byte_count < GIF_BURST_READ_FIFO_SIZE &&
+           decoder->burst_terminal == GIF_SOURCE_ACTIVE) {
+        GifPortingStatus read_status;
+        size_t free_bytes = GIF_BURST_READ_FIFO_SIZE - decoder->burst_byte_count;
+        size_t contiguous_bytes = GIF_BURST_READ_FIFO_SIZE -
+                                  decoder->burst_write_index;
+        size_t actual = 0;
+
+        if (contiguous_bytes > free_bytes) {
+            contiguous_bytes = free_bytes;
+        }
+
+        read_status = gif_porting_read(decoder->source_handle,
+                                       decoder->burst_fifo +
+                                           decoder->burst_write_index,
+                                       contiguous_bytes,
+                                       &actual);
+        if (actual > contiguous_bytes) {
+            decoder->burst_terminal = GIF_SOURCE_IO_ERROR;
+            decoder->burst_terminal_with_data = 0U;
+            return;
+        }
+
+        if (actual != 0U) {
+            decoder->burst_write_index =
+                (decoder->burst_write_index + actual) % GIF_BURST_READ_FIFO_SIZE;
+            decoder->burst_byte_count += actual;
+        }
+
+        if (read_status == GIF_PORTING_OK) {
+            if (actual == 0U) {
+                decoder->burst_terminal = GIF_SOURCE_IO_ERROR;
+                decoder->burst_terminal_with_data = 0U;
+            }
+            continue;
+        }
+
+        decoder->burst_terminal = read_status == GIF_PORTING_EOF
+                                      ? GIF_SOURCE_EOF
+                                      : GIF_SOURCE_IO_ERROR;
+        decoder->burst_terminal_with_data = actual != 0U ? 1U : 0U;
+    }
+}
+
+/**
+ * @brief Serve giflib from the FIFO and fill it when the low-water mark hits.
+ *
+ * @param[in,out] decoder Decoder containing the private FIFO state.
+ * @param[out] destination Bytes requested by giflib.
+ * @param[in] requested Exact number of requested bytes.
+ * @param[out] actual Number of bytes supplied from the FIFO.
+ * @return Source status associated with the supplied bytes or next request.
+ */
+static GifPortingStatus gif_decoder_burst_read(GifDecoder *decoder,
+                                                uint8_t *destination,
+                                                size_t requested,
+                                                size_t *actual) {
+    size_t total = 0;
+
+    *actual = 0;
+    while (total < requested) {
+        size_t copied;
+        size_t contiguous_bytes;
+
+        if (decoder->burst_byte_count == 0U) {
+            if (decoder->burst_terminal != GIF_SOURCE_ACTIVE) {
+                return gif_decoder_burst_terminal_status(
+                    decoder->burst_terminal);
+            }
+            gif_decoder_burst_refill(decoder);
+            if (decoder->burst_byte_count == 0U) {
+                return gif_decoder_burst_terminal_status(
+                    decoder->burst_terminal);
+            }
+        }
+
+        contiguous_bytes = GIF_BURST_READ_FIFO_SIZE - decoder->burst_read_index;
+        copied = requested - total;
+        if (copied > decoder->burst_byte_count) {
+            copied = decoder->burst_byte_count;
+        }
+        if (copied > contiguous_bytes) {
+            copied = contiguous_bytes;
+        }
+        memcpy(destination + total,
+               decoder->burst_fifo + decoder->burst_read_index,
+               copied);
+        decoder->burst_read_index =
+            (decoder->burst_read_index + copied) % GIF_BURST_READ_FIFO_SIZE;
+        decoder->burst_byte_count -= copied;
+        total += copied;
+
+        if (decoder->burst_byte_count <= GIF_BURST_READ_LOW_WATERMARK &&
+            decoder->burst_terminal == GIF_SOURCE_ACTIVE) {
+            gif_decoder_burst_refill(decoder);
+        }
+
+        if (decoder->burst_byte_count == 0U &&
+            decoder->burst_terminal != GIF_SOURCE_ACTIVE) {
+            *actual = total;
+            if (decoder->burst_terminal_with_data != 0U) {
+                return gif_decoder_burst_terminal_status(
+                    decoder->burst_terminal);
+            }
+            return total == 0U
+                       ? gif_decoder_burst_terminal_status(
+                             decoder->burst_terminal)
+                       : GIF_PORTING_OK;
+        }
+    }
+
+    *actual = total;
+    return GIF_PORTING_OK;
+}
+#endif
+
 /**
  * @brief Adapt the hidden short-read source to giflib's exact-read contract.
  *
- * The bridge repeatedly calls the facade-provided source while it returns
- * progress, so a legal short read is not mistaken for EOF. Terminal source
- * state is retained for public error mapping.
+ * The bridge repeatedly obtains bytes until giflib's exact request is met.
+ * With BURST_READ enabled, the private FIFO serves those bytes while the raw
+ * platform source remains confined to the porting boundary.
  *
  * @param[in] gif          giflib decoder that owns the hidden source context.
  * @param[out] destination Buffer supplied by giflib.
@@ -112,10 +259,17 @@ static int gif_decoder_read_bridge(GifFileType *gif,
         size_t actual = 0;
         size_t remaining = requested - total;
 
+#if GIF_ENABLE_BURST_READ
+        read_status = gif_decoder_burst_read(decoder,
+                                             destination + total,
+                                             remaining,
+                                             &actual);
+#else
         read_status = gif_porting_read(decoder->source_handle,
                                        destination + total,
                                        remaining,
                                        &actual);
+#endif
 
         if (actual > remaining) {
             decoder->source_terminal = GIF_SOURCE_IO_ERROR;
