@@ -25,6 +25,28 @@ For PRIVATE, implement only `gif_mem_private_malloc()`, `gif_mem_private_realloc
 
 An enabled build preserves the caller-owned framebuffer model. Restore-to-Previous uses the optional `GifOutputSurface.disposal3_snapshot` supplied by the application. The decoder never allocates, releases, or includes that storage in any allocator backend or BUILTIN pool budget.
 
+## Optional BURST_READ feature
+
+`GIF_ENABLE_BURST_READ` defaults to `0`. When set to `1`, every live decoder
+contains one private FIFO of `GIF_BURST_READ_FIFO_SIZE` bytes. The FIFO is
+allocated as part of the decoder object through the selected decoder backend;
+it is neither application-owned storage nor a port-owned handle. The
+low-water mark, `GIF_BURST_READ_LOW_WATERMARK`, controls when the library
+refills that FIFO and does not add another allocation.
+
+For a product with `N` simultaneously live decoders, reserve at least
+`N × GIF_BURST_READ_FIFO_SIZE` additional decoder-domain bytes, plus ordinary
+target ABI alignment. The current calculator predates this optional feature,
+so add this term to its reported result when BURST_READ is enabled until the
+calculator's target-size inputs are extended. The FIFO does not alter the
+separate framebuffer, disposal-method-3 snapshot, or port-handle terms.
+
+Enable it when larger sequential storage requests can amortize a meaningful
+transaction cost. Leave it disabled for memory-backed resources, inexpensive
+small reads, or products where the added per-decoder RAM outweighs that
+benefit. See [PORTING_GUIDE.md](PORTING_GUIDE.md) for its unchanged porting
+contract and [USER_GUIDE.md](USER_GUIDE.md) for configuration guidance.
+
 ## What the BUILTIN pool covers
 
 The streaming decoder does not retain decoded frames or `SavedImages`. Its pool contains decoder and giflib state, retained palettes, one transient palette-index row buffer, TLSF metadata, and—when the standard dynamic port pattern is used—the per-stream port handle allocated with `gif_porting_mem_alloc()`. An enabled method-3 build retains only a pointer to application-owned snapshot storage; the snapshot bytes are outside the pool.
@@ -33,6 +55,7 @@ For a declared product envelope, the source-level payload model is:
 
 ```text
 payload = N × fixed_decoder_state
+        + N × burst_read_fifo_capacity (when BURST_READ is enabled)
         + global_palette_count × palette_size
         + local_palette_count × palette_size
         + W

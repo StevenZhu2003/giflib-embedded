@@ -35,7 +35,41 @@ Disposal methods 0, 1, and 2 are always available. A GIF that requests disposal 
 
 Method 3 preserves the caller-owned framebuffer model. When a method-3 frame is decoded, the decoder uses the optional `GifOutputSurface.disposal3_snapshot` supplied by the application; it never obtains snapshot bytes through `gif_mem_*`. Reserve one distinct static snapshot for every concurrently live decoder that may encounter method 3. A null or too-small snapshot returns `GIF_STATUS_BUFFER_TOO_SMALL` at that frame. [MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md) defines the separate snapshot calculation. The framebuffer and snapshot both remain outside the decoder pool.
 
-### 1.3 Complete the platform byte-source port
+### 1.3 Decide whether BURST_READ helps the source
+
+`GIF_ENABLE_BURST_READ` defaults to `0`, preserving the direct forward-only
+read path. Set it to `1` when one larger sequential request is materially
+cheaper than many small ones: for example, a serial flash, block-storage
+driver, or remote storage adapter with a fixed transaction setup cost. The
+private adapter then batches the decoder's small requests through a
+per-decoder FIFO. It does not change `GifDecoderConfig`, `GifOutputSurface`,
+the decoder lifecycle, or the three porting functions.
+
+The enabled FIFO is configured at compile time:
+
+```c
+#define GIF_ENABLE_BURST_READ 1
+#define GIF_BURST_READ_FIFO_SIZE 1024U
+#define GIF_BURST_READ_LOW_WATERMARK 256U
+```
+
+The FIFO capacity must be non-zero and the low-water mark must be smaller than
+the capacity. CMake offers the corresponding
+`GIFLIB_ENABLE_BURST_READ`, `GIFLIB_BURST_READ_FIFO_SIZE`, and
+`GIFLIB_BURST_READ_LOW_WATERMARK` settings. Begin with the defaults, then use
+target measurements to choose a capacity that amortizes the source's setup
+cost without consuming unnecessary decoder-domain RAM.
+
+BURST_READ is usually not useful for a memory-resident asset or another source
+whose small reads are already inexpensive. It can also be unsuitable when a
+product must minimize per-live-decoder RAM or deliberately wants reads to stay
+as close as possible to decoder demand. It remains synchronous: an enabled
+decoder call can spend longer in one port read while the FIFO is being filled;
+it does not add a worker, DMA policy, or background scheduling. See
+[PORTING_GUIDE.md](PORTING_GUIDE.md) for the byte-source implications and
+[MEMORY_CONFIGURATION.md](MEMORY_CONFIGURATION.md) for the FIFO budget.
+
+### 1.4 Complete the platform byte-source port
 
 The decoder consumes sequential bytes. Before use, implement the open/read/close operations in the single target-owned file `port/gif_porting.c`. The application selects a resource through `GifDecoderConfig.source_identifier`; the port alone interprets that opaque value and obtains bytes from the target.
 
@@ -43,7 +77,7 @@ The port does not need a pathname, filesystem, seek operation, file size, or a s
 
 Follow [PORTING_GUIDE.md](PORTING_GUIDE.md) before integrating the API. It is the authoritative contract for dynamic-handle ownership, read byte counts and terminal statuses, cleanup, pool budgeting, and generic, FatFs, and memory-backed reference ports. Its imaginary `storage_open()`, `storage_read()`, and `storage_close()` names are teaching placeholders for the target's own byte-source operations.
 
-### 1.4 Prepare application services
+### 1.5 Prepare application services
 
 The application must provide three product-specific responsibilities outside the library:
 

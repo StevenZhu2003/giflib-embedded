@@ -16,6 +16,15 @@ The animation and its C byte representation were created for this project and ar
 
 The example does not impose a disposal-method configuration. It links the selected library build: the default remains method-3-trimmed, while a build configured with `-DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON` can also play a resource that uses Restore to Previous. `main.c` reserves a separate application-owned static snapshot sized for its maximum canvas, so the enabled build can accept a full-canvas method-3 rectangle without consuming the decoder allocator pool. The framebuffer remains application-owned in either configuration.
 
+The same application also works with `-DGIFLIB_ENABLE_BURST_READ=ON`, without
+changing `main.c` or its memory-backed `gif_porting.c`. It is intentionally not
+the recommended configuration for this example: a read-only in-memory cursor
+has negligible per-read setup cost, so the private FIFO adds per-decoder RAM
+without a meaningful transfer benefit. Use this build option instead when
+replacing the example's port with a sequential source such as serial flash or
+block storage, where contiguous requests can reduce transaction overhead. The
+port remains a plain forward-only byte provider in either configuration.
+
 ## Animation asset origin and license
 
 `assets/device_boot.gif` was created locally and specifically for this repository. It was not downloaded from the Internet and does not contain or adapt an external photograph, illustration, icon, logo, font, or other media asset. Its frames were drawn programmatically from project-original geometric shapes and a project-selected color palette, then encoded as a 128 x 64 GIF.
