@@ -60,6 +60,24 @@ jobs:
       - name: Check installation layout
         run: cmake --install build/ci-linux-gcc --prefix "$GITHUB_WORKSPACE/build/ci-install"
 
+  linux-gcc-burst-read:
+    name: Linux GCC BURST_READ and Disposal 3
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-linux-gcc-burst-read -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DGIFLIB_BUILD_TESTS=ON
+          -DGIFLIB_BUILD_EXAMPLES=ON
+          -DGIFLIB_ENABLE_BURST_READ=ON
+          -DGIFLIB_ENABLE_DISPOSAL_METHOD_3=ON
+      - name: Build
+        run: cmake --build build/ci-linux-gcc-burst-read --parallel
+      - name: Run tests
+        run: ctest --test-dir build/ci-linux-gcc-burst-read --output-on-failure --no-tests=error
+
   linux-clang-sanitized:
     name: Linux Clang ASan UBSan
     runs-on: ubuntu-24.04

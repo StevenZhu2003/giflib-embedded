@@ -205,10 +205,15 @@ The in-memory test port now records the largest requested byte count. Enabled fa
 
 The same tests passed in both an ordinary enabled configuration (1024-byte FIFO, 256-byte low-water mark) and a deliberately small configuration (32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the FIFO and uses seven-byte source reads, so it covers repeated refill and ring wrap without relying on a test-only decoder interface. The default-off host matrix remains unchanged and passes.
 
+### Phase 5 — enabled matrix and allocator coverage (complete)
+
+An enabled host configuration now combines BURST_READ, Disposal Method 3, the player example, and the opt-in compatibility corpus. Its 17 tests passed: the normal facade tests cover PRIVATE, BUILTIN, LIBC, and the LVGL public-API mock; the compatibility harness runs the full corpus through PRIVATE and backend-smoke coverage through BUILTIN, LIBC, and LVGL. The constrained BUILTIN-pool and repeated-lifecycle tests also pass in that configuration.
+
+The ordinary project CI now contains a Linux GCC BURST_READ plus Disposal 3 job. It runs the committed host suite and example with the optional features enabled. The local compatibility corpus remains deliberately outside CI because it is not repository content.
+
 ### Remaining implementation order
 
-1. Run the broader enabled functional-equivalence matrix and allocator/pool checks.
-2. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
-3. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
+1. Measure target `GifDecoder` sizes, update the estimator and memory documentation, then verify the resulting values.
+2. Update user-facing documentation, run the normal host matrix, enabled matrix, ARM checks, example build, and documentation checker.
 
 The work is complete only when default-off trimming, enabled input equivalence, terminal-result behavior, fixed-pool accounting, target sizing, and documentation all agree. A real-target storage measurement may guide a product's chosen FIFO depth, but does not block the correctness of the configurable feature itself.
