@@ -10,17 +10,7 @@ No work is currently scheduled at this priority.
 
 ## MID-HIGH — planned after the immediate work
 
-### BURST_READ — optional buffered input adapter
-
-The detailed design and implementation order are recorded in [BURST_READ_PLAN.md](BURST_READ_PLAN.md).
-
-- Add `GIF_ENABLE_BURST_READ`, disabled by default, plus centralized compile-time configuration for `GIF_BURST_READ_FIFO_SIZE` and `GIF_BURST_READ_LOW_WATERMARK`. Validate a non-zero FIFO, a low-water mark strictly below its capacity, and all relevant size calculations at compile time.
-- Implement BURST_READ in the private decoder input adapter: embed one fixed FIFO and its read state in each enabled `GifDecoder`, with capacity selected by `GIF_BURST_READ_FIFO_SIZE`. The FIFO is not application-provided and is not a separate variable-size allocation; it is bounded decoder-domain storage obtained when the decoder object is created. Do not move this state into application code or require each `gif_porting.c` implementation to recreate the same buffering logic.
-- Keep `gif_porting_read()` as the single platform read primitive. When buffered bytes reach the configured low-water mark, request a contiguous burst from that primitive, including a second request only when ring wrap requires it; consume bytes from the FIFO before requesting more source data. The feature remains synchronous: it does not introduce a pending result, task, thread, DMA policy, or new public decoder lifecycle.
-- Preserve the existing forward-only and short-read contract exactly. In particular, model final-byte `GIF_PORTING_EOF`, final-byte `GIF_PORTING_IO_ERROR`, zero-byte `GIF_PORTING_OK`, and early close explicitly so prefetch cannot discard buffered final bytes or change the public terminal result.
-- Cover disabled behavior, threshold boundaries, ring wrap, sparse source reads, EOF/error after valid bytes, repeated open/decode/close, and multiple live decoders. Compare decoded output and status sequences with BURST_READ disabled; record storage-read request counts separately rather than treating fewer calls as a correctness requirement.
-- Update CMake, Porting Guide, Memory Configuration, the BUILTIN sizing estimator, and pool regression coverage. Enabled FIFO bytes are fixed decoder-domain storage and must be counted once per live decoder in the pool model; they remain separate from the application framebuffer and disposal-method-3 snapshot.
-- Validate the default-off code/RAM boundary on ARM and all allocator backends. Measure a real target source before presenting BURST_READ as a performance recommendation; its value depends on the platform storage latency and the giflib request pattern.
+No work is currently scheduled at this priority.
 
 ## MID — useful, but not the next priority
 
