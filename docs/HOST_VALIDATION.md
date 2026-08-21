@@ -11,7 +11,7 @@ The ordinary repository regression remains independent of this guide's local GIF
 | Curated corpus | Ensure public behavior is tested against independently generated GIFs rather than only small project fixtures. | All 39 pinned files have provenance, a digest, a classification, and a frozen structural outcome. |
 | Public lifecycle | Check the same open, bind, decode, and close calls an application uses. | The opt-in harness uses only the public decoder API and a forward-only test port. |
 | Composition | Detect errors in interlace, partial rectangles, transparency, overlap, and disposal behavior. | Reviewed RGB888 hashes cover selected high-value composition cases; the ordinary fixture suite checks optional disposal method 3 in RGB888 and RGB565, including initial, consecutive, 2-to-3, and 3-to-2 composition transitions with caller-owned snapshots. |
-| Read and cleanup | Confirm short reads, final-byte EOF, source failures, and repeated lifecycles do not violate the port contract. | The selected sparse matrix passes without an unnecessary Cartesian-product expansion. |
+| Read and cleanup | Confirm short reads, final-byte EOF, source failures, repeated lifecycles, and optional BURST_READ prefetch do not violate the port contract. | The selected sparse matrix and both default-off and BURST_READ-enabled host matrices pass without an unnecessary Cartesian-product expansion. |
 | Allocator scope | Confirm decoder behavior is not coupled to one host allocator implementation. | The full corpus uses PRIVATE accounting; selected cases also pass through BUILTIN, LIBC, and the LVGL public-API mock. |
 | Host instrumentation | Detect invalid memory or undefined-behavior paths while ordinary regression and the example run. | The completed configured host matrices passed under both supported host configurations. |
 | Fuzzing | Explore variations around the curated corpus and measure whether the current input model reaches new code paths. | Two four-worker campaigns ran for about 4 hours 56 minutes and at least 3,877,840 executions; code coverage reached a stable plateau. |
@@ -81,7 +81,14 @@ Each result is a single expected outcome, rather than a choice among broadly sim
 
 The compatibility target is deliberately opt-in and receives the local corpus path at test time. It may use host file I/O only to preload each GIF into application-owned memory; the decoder consumes that memory through the normal forward-only test port and public API.
 
-    cmake -S . -B build/local-compat -DGIFLIB_BUILD_TESTS=OFF -DGIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS=ON -DGIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR=<local-gif-conformance-directory> cmake --build build/local-compat ctest --test-dir build/local-compat --output-on-failure
+```powershell
+cmake -S . -B build/local-compat `
+    -DGIFLIB_BUILD_TESTS=OFF `
+    -DGIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS=ON `
+    -DGIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR=<local-gif-conformance-directory>
+cmake --build build/local-compat
+ctest --test-dir build/local-compat --output-on-failure
+```
 
 The harness verifies public statuses, frame count, canvas dimensions, relevant GifFrameInfo fields, close ownership, and allocation balance where the selected test backend makes it observable. It does not call giflib or private allocator APIs to parse or classify a GIF.
 
@@ -142,13 +149,17 @@ Each generated input is exercised as the complete input, a one-byte-shorter pref
 
 The supported Windows workflow uses the Visual Studio LLVM clang.exe with Ninja. The runner loads the local MSVC environment, configures build/host-fuzz-clang, and enables both GIFLIB_BUILD_FUZZER=ON and GIFLIB_ENABLE_HOST_SANITIZERS=ON.
 
-    .\tools\run_fuzz.ps1 -Smoke
+```powershell
+.\tools\run_fuzz.ps1 -Smoke
+```
 
 The smoke mode runs 2,000 bounded executions to validate the local build and harness wiring.
 
 ### 5.3 Timed campaign
 
-    .\tools\run_fuzz.ps1 -DurationMinutes 240 -Jobs 4
+```powershell
+.\tools\run_fuzz.ps1 -DurationMinutes 240 -Jobs 4
+```
 
 Only one runner invocation may use a local corpus at a time. The script refuses an unbounded run. A normal Ctrl+C stop preserves units already written to the seed directory, but does not create formal DONE summaries for interrupted workers.
 
@@ -166,13 +177,20 @@ The initial seed source is the local gif-conformance/ corpus. The runner copies 
 
 For a parallel run, follow one live worker from the newest record directory:
 
-    $run = Get-ChildItem .\testdata\fuzz\logs\workers-* | Sort-Object LastWriteTime -Descending | Select-Object -First 1 Get-Content (Join-Path $run.FullName 'fuzz-0.log') -Tail 20 -Wait
+```powershell
+$run = Get-ChildItem .\testdata\fuzz\logs\workers-* |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+Get-Content (Join-Path $run.FullName 'fuzz-0.log') -Tail 20 -Wait
+```
 
 Use fuzz-1.log, fuzz-2.log, or fuzz-3.log for the other workers. The fuzz-<timestamp>.log file is a short run summary; fuzz-<timestamp>-controller.log is written when the runner exits.
 
 Replay a retained input with the same instrumented target:
 
-    .\tools\run_fuzz.ps1 -ReplayArtifact .\testdata\fuzz\artifacts\<input-file>
+```powershell
+.\tools\run_fuzz.ps1 -ReplayArtifact .\testdata\fuzz\artifacts\<input-file>
+```
 
 For a handoff, retain the run JSON, controller output, worker directory, command line, exit code, seed count/size, and every retained input. Keep all of these local unless their provenance and disclosure are separately reviewed.
 

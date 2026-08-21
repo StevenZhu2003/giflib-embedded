@@ -73,9 +73,9 @@
  *
  * The default preserves the smallest decoder and the existing policy: a GIF
  * requesting disposal method 3 returns GIF_STATUS_UNSUPPORTED_FEATURE. Set to
- * 1 to include the rectangle snapshot path required by the feature. Enabled
- * BUILTIN builds must budget for the largest pending image-rectangle snapshot;
- * the caller-owned framebuffer remains separate.
+ * 1 to include the rectangle snapshot path required by the feature. The
+ * snapshot itself is caller-owned storage, separate from both the framebuffer
+ * and every decoder allocator backend.
  */
 #ifndef GIF_ENABLE_DISPOSAL_METHOD_3
 #define GIF_ENABLE_DISPOSAL_METHOD_3 0
@@ -89,9 +89,8 @@
  * @brief Enable synchronous FIFO-backed burst reads from the platform source.
  *
  * The default preserves direct forward-only reads through gif_porting_read().
- * Set to 1 to select the optional internal FIFO adapter once that feature is
- * included by the library build. The FIFO belongs to the decoder allocator
- * domain; it is never supplied by the application.
+ * Set to 1 to select the optional internal FIFO adapter. The FIFO belongs to
+ * the decoder allocator domain; it is never supplied by the application.
  */
 #ifndef GIF_ENABLE_BURST_READ
 #define GIF_ENABLE_BURST_READ 0

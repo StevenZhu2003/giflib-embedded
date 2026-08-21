@@ -28,7 +28,7 @@ The completed workload matrix exercised disposal methods 0, 1, and 2. Restore to
 
 ### BURST_READ scope
 
-BURST_READ is an optional later feature and was not present in the original mixed-lifecycle workload matrix. Its FIFO is decoder-owned rather than application-owned, so the calculator adds the separately measured selected-build increment to every profile. On the verified ARM32 ABI, a 1,024-byte FIFO increases one decoder's fixed payload by 1,040 bytes; this is a structure-layout measurement, not a replacement for product validation with a chosen FIFO depth and source workload.
+BURST_READ is an optional current feature, but it was not present in the original mixed-lifecycle workload matrix. Its FIFO is decoder-owned rather than application-owned, so the calculator adds the separately measured selected-build increment to every profile. On the verified ARM32 ABI, the default 256-byte FIFO increases one decoder's fixed payload by 272 bytes; a separately measured 1,024-byte configuration increases it by 1,040 bytes. These are structure-layout measurements, not a replacement for product validation with a chosen FIFO depth and source workload. The original endurance evidence therefore supports the base allocator model, while BURST_READ products still need targeted validation of their selected FIFO and source behavior.
 
 ## Scope and memory boundary
 
