@@ -50,27 +50,11 @@ The application decides **what to open**. The port decides **how to open and rea
 
 ### Optional BURST_READ batching
 
-`GIF_ENABLE_BURST_READ=1` adds a private FIFO between the decoder's byte
-requests and this unchanged porting contract. When its stored-byte count
-reaches `GIF_BURST_READ_LOW_WATERMARK`, the library asks
-`gif_porting_read()` for the largest contiguous free FIFO span, up to
-`GIF_BURST_READ_FIFO_SIZE` bytes. The port must continue to treat
-`requested_bytes` as an upper bound: a positive short read remains valid.
+`GIF_ENABLE_BURST_READ=1` adds a private FIFO between the decoder's byte requests and this unchanged porting contract. When its stored-byte count reaches `GIF_BURST_READ_LOW_WATERMARK`, the library asks `gif_porting_read()` for the largest contiguous free FIFO span, up to `GIF_BURST_READ_FIFO_SIZE` bytes. The port must continue to treat `requested_bytes` as an upper bound: a positive short read remains valid.
 
-This is a good fit for sequential sources whose setup overhead is significant
-relative to a few bytes, such as serial memory or a block-oriented driver. It
-can reduce transaction count, but it adds the configured FIFO capacity to
-every live decoder in the selected decoder allocator domain and may request
-bytes ahead of the immediate parser demand. It is normally unnecessary for a
-memory cursor or a source with cheap small reads. The feature remains fully
-synchronous and does not require a porting-layer FIFO, an asynchronous API,
-or a change to the application's decoder calls.
+This is a good fit for sequential sources whose setup overhead is significant relative to a few bytes, such as serial memory or a block-oriented driver. It can reduce transaction count, but it adds the configured FIFO capacity to every live decoder in the selected decoder allocator domain and may request bytes ahead of the immediate parser demand. It is normally unnecessary for a memory cursor or a source with cheap small reads. The feature remains fully synchronous and does not require a porting-layer FIFO, an asynchronous API, or a change to the application's decoder calls.
 
-Choose the capacity and low-water mark in `gif_config.h` or through CMake;
-the User Guide explains product selection and Memory Configuration records
-the pool-budget consequence. Do not add burst-specific logic to
-`port/gif_porting.c`: its role remains opening, supplying sequential bytes,
-and closing one source handle.
+Choose the capacity and low-water mark in `gif_config.h` or through CMake; the User Guide explains product selection and Memory Configuration records the pool-budget consequence. Do not add burst-specific logic to `port/gif_porting.c`: its role remains opening, supplying sequential bytes, and closing one source handle.
 
 For a normal port:
 

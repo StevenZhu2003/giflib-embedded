@@ -81,9 +81,7 @@ Each result is a single expected outcome, rather than a choice among broadly sim
 
 The compatibility target is deliberately opt-in and receives the local corpus path at test time. It may use host file I/O only to preload each GIF into application-owned memory; the decoder consumes that memory through the normal forward-only test port and public API.
 
-    cmake -S . -B build/local-compat -DGIFLIB_BUILD_TESTS=OFF -DGIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS=ON -DGIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR=<local-gif-conformance-directory>
-    cmake --build build/local-compat
-    ctest --test-dir build/local-compat --output-on-failure
+    cmake -S . -B build/local-compat -DGIFLIB_BUILD_TESTS=OFF -DGIFLIB_BUILD_LOCAL_COMPATIBILITY_TESTS=ON -DGIFLIB_LOCAL_COMPATIBILITY_CORPUS_DIR=<local-gif-conformance-directory> cmake --build build/local-compat ctest --test-dir build/local-compat --output-on-failure
 
 The harness verifies public statuses, frame count, canvas dimensions, relevant GifFrameInfo fields, close ownership, and allocation balance where the selected test backend makes it observable. It does not call giflib or private allocator APIs to parse or classify a GIF.
 
@@ -168,10 +166,7 @@ The initial seed source is the local gif-conformance/ corpus. The runner copies 
 
 For a parallel run, follow one live worker from the newest record directory:
 
-    $run = Get-ChildItem .\testdata\fuzz\logs\workers-* |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    Get-Content (Join-Path $run.FullName 'fuzz-0.log') -Tail 20 -Wait
+    $run = Get-ChildItem .\testdata\fuzz\logs\workers-* | Sort-Object LastWriteTime -Descending | Select-Object -First 1 Get-Content (Join-Path $run.FullName 'fuzz-0.log') -Tail 20 -Wait
 
 Use fuzz-1.log, fuzz-2.log, or fuzz-3.log for the other workers. The fuzz-<timestamp>.log file is a short run summary; fuzz-<timestamp>-controller.log is written when the runner exits.
 

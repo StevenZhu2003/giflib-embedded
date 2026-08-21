@@ -177,71 +177,33 @@ Update only canonical locations after implementation:
 
 ### Phase 1 — configuration boundary (complete)
 
-The first implementation stage adds the three `GIF_*` configuration macros,
-their default values and enabled-mode validation in `gif_config.h`. CMake now
-accepts matching cache entries, forwards the selected values to the library and
-all locally compiled decoder targets, and rejects an enabled zero-capacity FIFO
-or a low-water mark at or above FIFO capacity.
+The first implementation stage adds the three `GIF_*` configuration macros, their default values and enabled-mode validation in `gif_config.h`. CMake now accepts matching cache entries, forwards the selected values to the library and all locally compiled decoder targets, and rejects an enabled zero-capacity FIFO or a low-water mark at or above FIFO capacity.
 
-This stage deliberately adds no FIFO object, input helper, porting change, or
-read-path behavior. A default-off host regression and an enabled-config host
-regression both pass; a deliberately invalid enabled configuration is rejected
-at CMake configuration time. The next stage freezes source-terminal behavior
-before any FIFO state is introduced.
+This stage deliberately adds no FIFO object, input helper, porting change, or read-path behavior. A default-off host regression and an enabled-config host regression both pass; a deliberately invalid enabled configuration is rejected at CMake configuration time. The next stage freezes source-terminal behavior before any FIFO state is introduced.
 
 ### Phase 2 — source-terminal baseline (complete)
 
-The host test port can now emit one zero-byte `GIF_PORTING_OK` result at a
-chosen source offset, in addition to its existing short-read, EOF, and I/O
-schedules. Focused facade tests freeze the current public behavior under
-single-byte source reads:
+The host test port can now emit one zero-byte `GIF_PORTING_OK` result at a chosen source offset, in addition to its existing short-read, EOF, and I/O schedules. Focused facade tests freeze the current public behavior under single-byte source reads:
 
-- a complete GIF whose final trailer byte accompanies `GIF_PORTING_EOF` yields
-  its frame and then `GIF_STATUS_END_OF_STREAM`;
-- the same complete GIF whose final trailer byte accompanies
-  `GIF_PORTING_IO_ERROR` yields the same frame and then
-  `GIF_STATUS_END_OF_STREAM`; and
-- a zero-byte `GIF_PORTING_OK` at the first frame read yields a sticky
-  `GIF_STATUS_IO_ERROR`.
+- a complete GIF whose final trailer byte accompanies `GIF_PORTING_EOF` yields its frame and then `GIF_STATUS_END_OF_STREAM`;
+- the same complete GIF whose final trailer byte accompanies `GIF_PORTING_IO_ERROR` yields the same frame and then `GIF_STATUS_END_OF_STREAM`; and
+- a zero-byte `GIF_PORTING_OK` at the first frame read yields a sticky `GIF_STATUS_IO_ERROR`.
 
-These outcomes are the reference for the later FIFO terminal-state adapter.
-The test port and decoder tests changed only to make that behavior explicit;
-the decoder input path is still direct.
+These outcomes are the reference for the later FIFO terminal-state adapter. The test port and decoder tests changed only to make that behavior explicit; the decoder input path is still direct.
 
 ### Phase 3 — private FIFO input adapter (complete)
 
-`GifDecoder` now contains the FIFO and its ring metadata only when
-`GIF_ENABLE_BURST_READ` is enabled. The existing giflib read callback remains
-the single input boundary; it selects a private FIFO helper in an enabled
-build and retains the previous direct port read path otherwise.
+`GifDecoder` now contains the FIFO and its ring metadata only when `GIF_ENABLE_BURST_READ` is enabled. The existing giflib read callback remains the single input boundary; it selects a private FIFO helper in an enabled build and retains the previous direct port read path otherwise.
 
-The helper fills contiguous FIFO spans through `gif_porting_read()`, including
-the second span after a ring wrap. It remembers whether a terminal port result
-arrived with usable bytes: those bytes are delivered before the terminal is
-reported, whereas a zero-byte terminal result is reported on the next byte
-request. This preserves the Phase 2 public status sequence even if the FIFO
-has read ahead of giflib.
+The helper fills contiguous FIFO spans through `gif_porting_read()`, including the second span after a ring wrap. It remembers whether a terminal port result arrived with usable bytes: those bytes are delivered before the terminal is reported, whereas a zero-byte terminal result is reported on the next byte request. This preserves the Phase 2 public status sequence even if the FIFO has read ahead of giflib.
 
-The default-off host matrix (13 tests) and the enabled host matrix (12 tests)
-both pass. The existing single-byte short-read test now explicitly documents
-the enabled adapter's final EOF probe; it continues to assert the prior
-direct-read count when the feature is disabled. The next stage adds dedicated
-instrumentation for FIFO thresholds, wrap, and requested batch sizes.
+The default-off host matrix (13 tests) and the enabled host matrix (12 tests) both pass. The existing single-byte short-read test now explicitly documents the enabled adapter's final EOF probe; it continues to assert the prior direct-read count when the feature is disabled. The next stage adds dedicated instrumentation for FIFO thresholds, wrap, and requested batch sizes.
 
 ### Phase 4 — focused FIFO behavior coverage (complete)
 
-The in-memory test port now records the largest requested byte count. Enabled
-facade tests verify that an initial port request uses the configured FIFO
-capacity, that closing immediately after an open with unread prefetched bytes
-still closes the port exactly once, and that a short-read multi-frame stream
-continues through the FIFO to `GIF_STATUS_END_OF_STREAM`.
+The in-memory test port now records the largest requested byte count. Enabled facade tests verify that an initial port request uses the configured FIFO capacity, that closing immediately after an open with unread prefetched bytes still closes the port exactly once, and that a short-read multi-frame stream continues through the FIFO to `GIF_STATUS_END_OF_STREAM`.
 
-The same tests passed in both an ordinary enabled configuration (1024-byte
-FIFO, 256-byte low-water mark) and a deliberately small configuration
-(32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the
-FIFO and uses seven-byte source reads, so it covers repeated refill and ring
-wrap without relying on a test-only decoder interface. The default-off host
-matrix remains unchanged and passes.
+The same tests passed in both an ordinary enabled configuration (1024-byte FIFO, 256-byte low-water mark) and a deliberately small configuration (32-byte FIFO, 8-byte low-water mark). The latter stream is larger than the FIFO and uses seven-byte source reads, so it covers repeated refill and ring wrap without relying on a test-only decoder interface. The default-off host matrix remains unchanged and passes.
 
 ### Remaining implementation order
 
